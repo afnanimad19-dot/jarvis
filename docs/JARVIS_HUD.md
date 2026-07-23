@@ -19,13 +19,19 @@ the two coexist; neither breaks the other.
 
 ## Step-by-step setup (Windows, Python 3.11)
 
-**1. Get the code** (any folder is fine, e.g. `C:\apps`):
+**1. Get the code** — any folder on any drive works. Example for the **F: drive**:
 
 ```bat
-cd C:\apps
+F:
+mkdir F:\Jarvis
+cd F:\Jarvis
 git clone -b claude/jarvis-ai-bot-tracking-rglwl7 https://github.com/afnanimad19-dot/jarvis.git
 cd jarvis
 ```
+
+Everything (code, virtual env, downloaded models) then lives under
+`F:\Jarvis` — nothing project-related is written to C:. (Python itself and
+pip's package cache stay wherever Python is installed; that's normal.)
 
 **2. Create a virtual env + install:**
 
@@ -93,6 +99,41 @@ overlapping a tracked hand are flagged **held** in the OBJECTS row.
 browser agent with the same LLM gateway. Honest caveat: multi-step browsing
 needs a capable model; small free-tier models are unreliable at it.
 
+### Crawl & research (crawl4ai)
+`pip install crawl4ai` then `crawl4ai-setup`, and set `JARVIS_ENABLE_CRAWL=1`.
+In the console type:
+
+```
+/crawl https://example.com/page  what are the main features of this product?
+```
+
+JARVIS fetches the page as clean markdown and answers your question about it
+(or summarizes if you ask nothing). Reality check: Instagram/VSCO/TikTok/X
+aggressively block crawlers and hide content behind login — public pages,
+blogs, docs and product pages work far better.
+
+### Social media drafts (Postiz)
+Postiz is a separate self-hosted scheduler (Docker). Run it, connect your
+social channels in its UI, create an API key (Settings → Public API), then:
+
+```
+POSTIZ_URL=http://localhost:5000
+POSTIZ_API_KEY=...
+```
+
+In the console: `/post your post text here` → JARVIS creates a **draft** on
+your connected channels. You review and publish inside Postiz — JARVIS never
+auto-publishes, by design. Typical flow: `/crawl` a topic → ask JARVIS to
+write the post → `/post` the text.
+
+### Local voice / voice cloning (VoxCPM)
+No ElevenLabs credits? `pip install voxcpm` and set
+`JARVIS_TTS_PROVIDER=voxcpm` (or leave `auto` — it's the fallback when
+ElevenLabs keys are absent). First run downloads the OpenBMB VoxCPM-0.5B
+model. To clone a voice: record a short clean WAV, set
+`JARVIS_VOXCPM_PROMPT_WAV` + `JARVIS_VOXCPM_PROMPT_TEXT` (its transcript).
+Runs on CPU but a GPU makes it much faster. Use voices you have rights to.
+
 ### Optional: email (listmonk)
 listmonk is a separate self-hosted mail server (Docker). Once yours runs,
 set `LISTMONK_URL` / `LISTMONK_USER` / `LISTMONK_TOKEN` and use
@@ -134,3 +175,14 @@ All via environment or `jarvis_hud/.env` — see `.env.example`. Highlights:
 - **NVIDIA Eagle (Embodied)** — research vision-language models for robots.
   Running them locally needs serious GPU hardware; the SCAN feature achieves
   the "label what I'm holding" effect with hosted VLMs instead.
+- **VoxCPM** — OpenBMB's local TTS with voice cloning; integrated as a TTS
+  provider (`JARVIS_TTS_PROVIDER=voxcpm`).
+- **crawl4ai** — LLM-friendly crawler; integrated as the `/crawl` command.
+- **postiz-app** — self-hosted social scheduler; integrated as the `/post`
+  command (drafts only — publishing stays manual in Postiz).
+- **claude-seo** — a Claude Code *plugin* (`/seo audit <url>`, 25 sub-skills).
+  It runs inside Claude Code, not inside JARVIS — install it there per its
+  README and use it alongside JARVIS.
+- **floci** — a local AWS emulator (LocalStack replacement) for developing
+  and testing cloud software. Unrelated to a personal assistant; deliberately
+  not integrated. Use it when you build AWS-backed apps.

@@ -80,6 +80,11 @@ async function send() {
   if (!message) return;
   input.value = "";
   addMsg("YOU", message);
+
+  // Console commands: /crawl <url> [question]   /post <text>
+  if (message.startsWith("/crawl ")) return crawlCommand(message.slice(7).trim());
+  if (message.startsWith("/post ")) return postCommand(message.slice(6).trim());
+
   status("PROCESSING…");
   try {
     const resp = await fetch("/api/chat", {
@@ -97,6 +102,46 @@ async function send() {
     status("ERROR");
   }
 }
+async function crawlCommand(rest) {
+  const firstSpace = rest.indexOf(" ");
+  const url = firstSpace === -1 ? rest : rest.slice(0, firstSpace);
+  const question = firstSpace === -1 ? "" : rest.slice(firstSpace + 1);
+  status("CRAWLING " + url.toUpperCase().slice(0, 40) + "…");
+  try {
+    const resp = await fetch("/api/crawl", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, question }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    addMsg(botName, data.answer);
+    status("CRAWL COMPLETE — " + data.chars_crawled + " CHARS ANALYZED");
+    if ($("speak").checked) speak(data.answer);
+  } catch (err) {
+    addMsg("SYSTEM", "Crawl error: " + err.message);
+    status("CRAWL FAILED");
+  }
+}
+
+async function postCommand(text) {
+  status("DRAFTING SOCIAL POST…");
+  try {
+    const resp = await fetch("/api/social/draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, channel_ids: [] }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    addMsg("SYSTEM", `Draft created in Postiz on ${data.channels.length} channel(s). Review and publish it there — nothing goes live automatically.`);
+    status("DRAFT SAVED TO POSTIZ");
+  } catch (err) {
+    addMsg("SYSTEM", "Post error: " + err.message);
+    status("DRAFT FAILED");
+  }
+}
+
 $("sendBtn").onclick = send;
 $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
 

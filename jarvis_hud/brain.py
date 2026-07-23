@@ -95,6 +95,25 @@ class JarvisBrain:
         self._history.append({"role": "assistant", "content": [{"type": "text", "text": reply}]})
         return reply
 
+    def research(self, page_markdown: str, url: str, question: str = "") -> str:
+        """One-shot analysis of crawled page content (does not touch history)."""
+        ask = question or "Summarize the key points of this page for me, briefly."
+        turn = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"I crawled this page: {url}\n\n"
+                            f"<page_content>\n{page_markdown}\n</page_content>\n\n{ask}"
+                        ),
+                    }
+                ],
+            }
+        ]
+        return self._get_provider().chat(self._system, turn)
+
     def scan(self, frame_jpeg_b64: str, hint: str = ""):
         """One-shot HUD scan: returns a list of {label, detail, x, y}."""
         hint_text = f" The owner adds: {hint!r}." if hint else ""

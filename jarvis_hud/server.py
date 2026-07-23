@@ -18,6 +18,7 @@ from . import voice
 from .brain import JarvisBrain
 from .config import settings
 from .gesture import GestureMouse
+from .integrations import crawler, postiz
 from .llm import LLMError
 from .vision.camera import VisionEngine
 
@@ -55,6 +56,8 @@ def get_config():
         "provider": brain.provider_name,
         "tts_available": voice.is_configured(),
         "gesture_enabled": gesture.enabled,
+        "crawl_available": crawler.is_enabled(),
+        "postiz_available": postiz.is_configured(),
     }
 
 
@@ -112,6 +115,61 @@ def set_gesture(req: GestureRequest):
     return {"enabled": gesture.enabled}
 
 
+class CrawlRequest(BaseModel):
+    url: str
+    question: str = ""
+
+
+@app.post("/api/crawl")
+async def crawl_url(req: CrawlRequest):
+    try:
+        markdown = await crawler.crawl(req.url)
+    except RuntimeError as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    try:
+        answer = brain.research(markdown, req.url, req.question)
+    except LLMError as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    return {"answer": answer, "chars_crawled": len(markdown)}
+
+
+@app.get("/api/social/channels")
+def social_channels():
+    if not postiz.is_configured():
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Postiz not configured (set POSTIZ_URL and POSTIZ_API_KEY)."},
+        )
+    try:
+        return {"channels": postiz.list_channels()}
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"error": f"Postiz error: {exc}"})
+
+
+class DraftRequest(BaseModel):
+    text: str
+    channel_ids: list[str] = []
+
+
+@app.post("/api/social/draft")
+def social_draft(req: DraftRequest):
+    """Creates a DRAFT in Postiz — publishing stays a manual step in its UI."""
+    if not postiz.is_configured():
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Postiz not configured (set POSTIZ_URL and POSTIZ_API_KEY)."},
+        )
+    try:
+        channel_ids = req.channel_ids
+        if not channel_ids:
+            channels = postiz.list_channels()
+            channel_ids = [c["id"] for c in channels if isinstance(c, dict) and "id" in c]
+        result = postiz.create_draft(req.text, channel_ids)
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"error": f"Postiz error: {exc}"})
+    return {"ok": True, "draft": result, "channels": channel_ids}
+
+
 @app.post("/api/reset")
 def reset():
     brain.reset()
@@ -129,8 +187,13 @@ async def tts(req: TTSRequest):
             status_code=404,
             content={"error": "TTS not configured (set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID)."},
         )
-    audio = await voice.synthesize(req.text)
-    return Response(content=audio, media_type="audio/mpeg")
+    try:
+        audio, mime = await voice.synthesize(req.text)
+    except Exception as exc:  # VoxCPM load errors, ElevenLabs network errors, etc.
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    if not audio:
+        return JSONResponse(status_code=404, content={"error": "TTS produced no audio."})
+    return Response(content=audio, media_type=mime)
 
 
 @app.websocket("/ws/vision")

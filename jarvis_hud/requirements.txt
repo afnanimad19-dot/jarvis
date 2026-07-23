@@ -20,3 +20,9 @@ screeninfo>=0.8
 
 # Optional: web-task agent — pip install browser-use && playwright install chromium
 # then set JARVIS_ENABLE_WEBTASK=1
+
+# Optional: web crawling (/crawl command) — pip install crawl4ai && crawl4ai-setup
+# then set JARVIS_ENABLE_CRAWL=1
+
+# Optional: local TTS / voice cloning — pip install voxcpm
+# (first run downloads the OpenBMB VoxCPM-0.5B model)

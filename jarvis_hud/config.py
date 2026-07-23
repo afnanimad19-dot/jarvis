@@ -81,7 +81,10 @@ class Settings:
         default_factory=lambda: float(os.environ.get("JARVIS_GESTURE_SMOOTHING", "0.35"))
     )
 
-    # Voice (ElevenLabs) — optional
+    # Voice output: auto | elevenlabs | voxcpm | off
+    tts_provider: str = field(
+        default_factory=lambda: os.environ.get("JARVIS_TTS_PROVIDER", "auto")
+    )
     elevenlabs_api_key: str = field(
         default_factory=lambda: os.environ.get("ELEVENLABS_API_KEY", "")
     )
@@ -90,6 +93,16 @@ class Settings:
     )
     elevenlabs_model_id: str = field(
         default_factory=lambda: os.environ.get("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
+    )
+    # VoxCPM (local TTS): optional voice cloning from a short sample WAV
+    voxcpm_model: str = field(
+        default_factory=lambda: os.environ.get("JARVIS_VOXCPM_MODEL", "openbmb/VoxCPM-0.5B")
+    )
+    voxcpm_prompt_wav: str = field(
+        default_factory=lambda: os.environ.get("JARVIS_VOXCPM_PROMPT_WAV", "")
+    )
+    voxcpm_prompt_text: str = field(
+        default_factory=lambda: os.environ.get("JARVIS_VOXCPM_PROMPT_TEXT", "")
     )
 
     # Server
