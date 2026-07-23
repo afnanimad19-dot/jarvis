@@ -4,9 +4,19 @@ uvicorn[standard]>=0.30
 websockets>=12
 opencv-python>=4.9
 mediapipe>=0.10.14
-anthropic>=0.116
 httpx>=0.27
 python-dotenv>=1.0
 
+# Brain providers (install both; only the configured one is used)
+openai>=1.40         # OpenRouter / OmniRoute (OpenAI-compatible gateways)
+anthropic>=0.116     # Claude direct (optional — needs ANTHROPIC_API_KEY)
+
+# Gesture mouse control (pinch-to-drag across monitors)
+pynput>=1.7
+screeninfo>=0.8
+
 # Optional: object detection ("what am I holding") — heavy, pulls in torch.
 # pip install ultralytics   and set JARVIS_ENABLE_OBJECTS=1
+
+# Optional: web-task agent — pip install browser-use && playwright install chromium
+# then set JARVIS_ENABLE_WEBTASK=1

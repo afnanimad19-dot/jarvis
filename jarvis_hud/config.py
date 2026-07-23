@@ -43,12 +43,43 @@ class Settings:
     enable_face: bool = field(default_factory=lambda: _bool("JARVIS_ENABLE_FACE", True))
     enable_objects: bool = field(default_factory=lambda: _bool("JARVIS_ENABLE_OBJECTS", False))
 
-    # Brain (Anthropic). ANTHROPIC_API_KEY is read by the SDK itself.
+    # Brain provider: "auto" | "anthropic" | "openai_compatible"
+    # auto = anthropic if ANTHROPIC_API_KEY is set, else openai_compatible.
+    llm_provider: str = field(
+        default_factory=lambda: os.environ.get("JARVIS_LLM_PROVIDER", "auto")
+    )
+
+    # Anthropic path. ANTHROPIC_API_KEY is read by the SDK itself.
     model: str = field(default_factory=lambda: os.environ.get("JARVIS_MODEL", "claude-fable-5"))
     fallback_model: str = field(
         default_factory=lambda: os.environ.get("JARVIS_FALLBACK_MODEL", "claude-opus-4-8")
     )
+
+    # OpenAI-compatible path: OpenRouter (default) or local OmniRoute gateway
+    # (http://localhost:20128/v1). Pick a VISION-capable model for scan mode.
+    llm_base_url: str = field(
+        default_factory=lambda: os.environ.get("JARVIS_LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    )
+    llm_api_key: str = field(
+        default_factory=lambda: os.environ.get(
+            "JARVIS_LLM_API_KEY", os.environ.get("OPENROUTER_API_KEY", "")
+        )
+    )
+    llm_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "JARVIS_LLM_MODEL", "qwen/qwen2.5-vl-72b-instruct:free"
+        )
+    )
+
     max_tokens: int = field(default_factory=lambda: _int("JARVIS_MAX_TOKENS", 4096))
+
+    # Gesture mouse control (pinch to click-and-drag across monitors)
+    gesture_hand: str = field(
+        default_factory=lambda: os.environ.get("JARVIS_GESTURE_HAND", "Right")
+    )
+    gesture_smoothing: float = field(
+        default_factory=lambda: float(os.environ.get("JARVIS_GESTURE_SMOOTHING", "0.35"))
+    )
 
     # Voice (ElevenLabs) — optional
     elevenlabs_api_key: str = field(

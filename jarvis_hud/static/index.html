@@ -27,6 +27,7 @@
       <div class="row"><span>HEAD YAW</span><b id="tYaw">—</b></div>
       <div class="row"><span>HEAD PITCH</span><b id="tPitch">—</b></div>
       <div class="row"><span>OBJECTS</span><b id="tObjects">—</b></div>
+      <div class="row"><span>GESTURE CTRL</span><b><button id="gestureBtn" class="mini">OFF</button></b></div>
       <div class="binary" id="binaryTicker">000000000000</div>
     </aside>
 
@@ -60,6 +61,7 @@
         <div class="core-glow"></div>
         <div class="core-msg" id="coreMsg">CONNECTING…</div>
       </div>
+      <button id="scanBtn" class="scan-btn">◈ SCAN</button>
     </section>
 
     <!-- Right: console -->
@@ -77,6 +79,16 @@
       </div>
     </aside>
   </main>
+
+  <!-- Scan overlay: frozen frame + callout labels with leader lines -->
+  <div id="scanOverlay" class="scan-overlay" hidden>
+    <div class="scan-stage">
+      <img id="scanFrame" alt="" />
+      <svg id="scanLines" class="scan-lines"></svg>
+      <div id="scanLabels"></div>
+    </div>
+    <button id="scanClose" class="scan-close">✕ CLOSE</button>
+  </div>
 
   <footer class="statusline" id="statusLine">SYSTEMS NOMINAL</footer>
 

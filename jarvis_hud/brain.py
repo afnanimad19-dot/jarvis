@@ -1,24 +1,20 @@
-"""JARVIS brain — Claude Fable 5 via the official Anthropic SDK.
+"""JARVIS brain — provider-agnostic (Anthropic Claude, or any
+OpenAI-compatible gateway such as OpenRouter / a local OmniRoute).
 
-Design decisions:
-- Model is claude-fable-5 (per owner's choice), with the server-side refusal
-  fallback to claude-opus-4-8 enabled by default so a safety-classifier
-  decline degrades gracefully instead of failing.
-- Fable 5's thinking is always on; we do NOT send a `thinking` parameter.
-- The system prompt is static (prompt-caching friendly); live camera
-  telemetry is injected into the user turn, not the system prompt.
+- The system prompt is static; live camera telemetry is injected into the
+  user turn.
 - No autonomous tools are wired in: JARVIS answers, reports, and asks.
   Anything that acts on the owner's machine/accounts must go through
-  explicitly approved integrations (MCP), by design.
+  explicitly approved integrations, by design.
+- scan() is a one-shot vision call that returns labeled callout annotations
+  for whatever product/object is shown to the camera.
 """
 
 import json
-
-import anthropic
+import re
 
 from .config import settings
-
-FALLBACK_BETA = "server-side-fallback-2026-06-01"
+from .llm import LLMError, build_provider
 
 SYSTEM_PROMPT_TEMPLATE = """\
 You are {bot_name}, a personal AI assistant inspired by Iron Man's JARVIS, \
@@ -31,9 +27,9 @@ directly. Keep spoken-style responses short (1-4 sentences) unless asked for \
 detail — your replies may be read aloud by a voice engine.
 
 Hard rules:
-- You may inform, analyze, fetch, and advise. You must NOT claim to have \
-taken real-world actions (opening apps, deleting files, sending messages) — \
-you have no such tools here. If asked, say what you would need and ask for \
+- You may inform, analyze, and advise. You must NOT claim to have taken \
+real-world actions (opening apps, deleting files, sending messages) — you \
+have no such tools here. If asked, say what you would need and ask for \
 approval.
 - Never invent camera observations. Only describe what the telemetry or an \
 attached frame actually shows. If the camera is off or telemetry is empty, \
@@ -41,67 +37,108 @@ say so.
 - If you don't know something, say so plainly.
 """
 
+SCAN_PROMPT = """\
+Analyze this camera frame like an Iron-Man HUD. Identify the main product / \
+object being shown (prefer whatever is held in a hand or centered) and its \
+visible components or notable features.{hint}
+
+Reply with ONLY a JSON array, no prose, 3 to 7 items:
+[{{"label": "short name", "detail": "one-line description", "x": 0.42, "y": 0.31}}]
+
+x and y are normalized 0..1 coordinates of the point on the image the label \
+refers to (0,0 = top-left). The first item must be the overall product with \
+its most specific name.\
+"""
+
 
 class JarvisBrain:
     def __init__(self):
-        self._client = anthropic.Anthropic()
+        self._provider = None
         self._system = SYSTEM_PROMPT_TEMPLATE.format(
             bot_name=settings.bot_name, owner_name=settings.owner_name
         )
-        self._history = []  # alternating user/assistant turns
+        self._history = []  # provider-neutral turns
+
+    def _get_provider(self):
+        if self._provider is None:
+            self._provider = build_provider()
+        return self._provider
 
     def reset(self):
         self._history = []
+
+    @property
+    def provider_name(self) -> str:
+        try:
+            return self._get_provider().name
+        except LLMError as exc:
+            return f"unconfigured ({exc})"
 
     def chat(self, message: str, tracking: dict | None = None, frame_jpeg_b64: str | None = None):
         """One conversational turn. Returns the assistant's reply text."""
         content = []
         if frame_jpeg_b64:
-            content.append(
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "image/jpeg",
-                        "data": frame_jpeg_b64,
-                    },
-                }
-            )
+            content.append({"type": "image_jpeg_b64", "data": frame_jpeg_b64})
         text = message
         if tracking is not None:
             text += "\n\n<camera_telemetry>\n" + json.dumps(tracking) + "\n</camera_telemetry>"
         content.append({"type": "text", "text": text})
 
         self._history.append({"role": "user", "content": content})
-
         try:
-            response = self._client.beta.messages.create(
-                model=settings.model,
-                max_tokens=settings.max_tokens,
-                system=[
-                    {
-                        "type": "text",
-                        "text": self._system,
-                        "cache_control": {"type": "ephemeral"},
-                    }
+            reply = self._get_provider().chat(self._system, self._history)
+        except LLMError:
+            self._history.pop()
+            raise
+        if not reply:
+            reply = "(no response)"
+        self._history.append({"role": "assistant", "content": [{"type": "text", "text": reply}]})
+        return reply
+
+    def scan(self, frame_jpeg_b64: str, hint: str = ""):
+        """One-shot HUD scan: returns a list of {label, detail, x, y}."""
+        hint_text = f" The owner adds: {hint!r}." if hint else ""
+        turn = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_jpeg_b64", "data": frame_jpeg_b64},
+                    {"type": "text", "text": SCAN_PROMPT.format(hint=hint_text)},
                 ],
-                betas=[FALLBACK_BETA],
-                fallbacks=[{"model": settings.fallback_model}],
-                messages=self._history,
-            )
-        except anthropic.APIStatusError as exc:
-            # Roll back the failed turn so history stays consistent.
-            self._history.pop()
-            raise RuntimeError(f"Anthropic API error {exc.status_code}: {exc.message}") from exc
-        except anthropic.APIConnectionError as exc:
-            self._history.pop()
-            raise RuntimeError("Cannot reach the Anthropic API (network error).") from exc
+            }
+        ]
+        raw = self._get_provider().chat(
+            "You are a precise visual analysis engine. Output only valid JSON.", turn
+        )
+        return _parse_annotations(raw)
 
-        if response.stop_reason == "refusal":
-            self._history.pop()
-            return "I must decline that request."
 
-        # Preserve full content (incl. thinking blocks) for correct replay.
-        self._history.append({"role": "assistant", "content": response.content})
-        reply = "".join(block.text for block in response.content if block.type == "text")
-        return reply.strip() or "(no response)"
+def _parse_annotations(raw: str):
+    match = re.search(r"\[.*\]", raw, re.DOTALL)
+    if not match:
+        raise LLMError(f"Scan model did not return JSON. Raw output: {raw[:300]}")
+    try:
+        items = json.loads(match.group(0))
+    except json.JSONDecodeError as exc:
+        raise LLMError(f"Scan model returned invalid JSON: {exc}") from exc
+
+    annotations = []
+    for item in items:
+        if not isinstance(item, dict) or "label" not in item:
+            continue
+        try:
+            x = min(1.0, max(0.0, float(item.get("x", 0.5))))
+            y = min(1.0, max(0.0, float(item.get("y", 0.5))))
+        except (TypeError, ValueError):
+            x, y = 0.5, 0.5
+        annotations.append(
+            {
+                "label": str(item["label"])[:60],
+                "detail": str(item.get("detail", ""))[:200],
+                "x": x,
+                "y": y,
+            }
+        )
+    if not annotations:
+        raise LLMError("Scan model returned an empty result.")
+    return annotations

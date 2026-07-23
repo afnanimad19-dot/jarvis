@@ -10,6 +10,8 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
   ttsAvailable = cfg.tts_available;
   $("botName").textContent = botName.split("").join(".") + ".";
   document.title = botName;
+  renderGesture(cfg.gesture_enabled);
+  status("BRAIN: " + (cfg.provider || "?").toUpperCase() + " — SYSTEMS NOMINAL");
 });
 
 /* ---------- clock + binary ticker ---------- */
@@ -34,6 +36,7 @@ function connectVision() {
       $("coreMsg").style.display = "none";
     }
     renderTracking(data.tracking || {});
+    if (typeof data.gesture === "boolean" && data.gesture !== gestureOn) renderGesture(data.gesture);
   };
   ws.onclose = () => {
     $("coreMsg").style.display = "";
@@ -144,3 +147,109 @@ if (SR) {
 }
 
 function status(text) { $("statusLine").textContent = text; }
+
+/* ---------- gesture mouse control ---------- */
+let gestureOn = false;
+function renderGesture(on) {
+  gestureOn = on;
+  const btn = $("gestureBtn");
+  btn.textContent = on ? "ON" : "OFF";
+  btn.classList.toggle("on", on);
+}
+$("gestureBtn").onclick = async () => {
+  try {
+    const resp = await fetch("/api/gesture", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: !gestureOn }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error);
+    renderGesture(data.enabled);
+    status(data.enabled ? "GESTURE CONTROL ENGAGED — PINCH TO GRAB" : "GESTURE CONTROL OFF");
+  } catch (err) {
+    status("GESTURE ERROR");
+    addMsg("SYSTEM", err.message);
+  }
+};
+
+/* ---------- scan mode ---------- */
+$("scanBtn").onclick = async () => {
+  const btn = $("scanBtn");
+  btn.classList.add("busy");
+  btn.textContent = "◈ SCANNING…";
+  status("ANALYZING TARGET…");
+  try {
+    const resp = await fetch("/api/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hint: "" }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    showScan(data.frame, data.annotations);
+    status("SCAN COMPLETE");
+    if ($("speak").checked && data.annotations.length) {
+      speak(data.annotations[0].label + ". " + (data.annotations[0].detail || ""));
+    }
+  } catch (err) {
+    addMsg("SYSTEM", "Scan error: " + err.message);
+    status("SCAN FAILED");
+  } finally {
+    btn.classList.remove("busy");
+    btn.textContent = "◈ SCAN";
+  }
+};
+
+function showScan(frameB64, annotations) {
+  const overlay = $("scanOverlay");
+  const img = $("scanFrame");
+  overlay.hidden = false;
+  $("scanLabels").innerHTML = "";
+  $("scanLines").innerHTML = "";
+  img.onload = () => drawAnnotations(annotations);
+  img.src = "data:image/jpeg;base64," + frameB64;
+}
+
+function drawAnnotations(annotations) {
+  const img = $("scanFrame");
+  const W = img.clientWidth, H = img.clientHeight;
+  const svg = $("scanLines");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const labels = $("scanLabels");
+
+  annotations.forEach((a, i) => {
+    const px = a.x * W, py = a.y * H;
+    const left = a.x < 0.5;            // label goes on the opposite side
+    const lx = left ? W - 8 : 8;
+    const ly = (H / (annotations.length + 1)) * (i + 1);
+
+    const ns = "http://www.w3.org/2000/svg";
+    const dot = document.createElementNS(ns, "circle");
+    dot.setAttribute("cx", px); dot.setAttribute("cy", py); dot.setAttribute("r", 4);
+    svg.appendChild(dot);
+    const elbowX = left ? px + (W - px) * 0.55 : px * 0.45;
+    const l1 = document.createElementNS(ns, "line");
+    l1.setAttribute("x1", px); l1.setAttribute("y1", py);
+    l1.setAttribute("x2", elbowX); l1.setAttribute("y2", ly);
+    svg.appendChild(l1);
+    const l2 = document.createElementNS(ns, "line");
+    l2.setAttribute("x1", elbowX); l2.setAttribute("y1", ly);
+    l2.setAttribute("x2", lx); l2.setAttribute("y2", ly);
+    svg.appendChild(l2);
+
+    const card = document.createElement("div");
+    card.className = "callout";
+    card.style.top = ly + "px";
+    if (left) card.style.right = "-260px"; else card.style.left = "-260px";
+    card.innerHTML = "<b></b><span></span>";
+    card.querySelector("b").textContent = a.label;
+    card.querySelector("span").textContent = a.detail || "";
+    labels.appendChild(card);
+  });
+}
+
+$("scanClose").onclick = () => { $("scanOverlay").hidden = true; };
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") $("scanOverlay").hidden = true;
+});

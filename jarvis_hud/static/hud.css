@@ -150,6 +150,57 @@ html, body {
 .inputbar button:hover { background: rgba(79,195,247,0.28); }
 #micBtn.listening { color: #ff6b6b; border-color: #ff6b6b; animation: pulse 1s infinite; }
 
+/* ---------- mini toggle + scan button ---------- */
+button.mini {
+  background: transparent; border: 1px solid rgba(79,195,247,0.45);
+  color: var(--cyan-bright); font-size: 10px; letter-spacing: 0.15em;
+  border-radius: 3px; padding: 2px 8px; cursor: pointer;
+}
+button.mini.on { background: rgba(79,195,247,0.3); color: #fff; box-shadow: 0 0 10px rgba(79,195,247,0.5); }
+
+.scan-btn {
+  position: absolute; bottom: 4%; left: 50%; transform: translateX(-50%);
+  background: rgba(79,195,247,0.1); color: var(--cyan-bright);
+  border: 1px solid rgba(79,195,247,0.5); border-radius: 4px;
+  padding: 10px 26px; cursor: pointer; font-size: 13px; letter-spacing: 0.35em;
+  text-shadow: 0 0 10px var(--cyan); z-index: 12;
+}
+.scan-btn:hover { background: rgba(79,195,247,0.25); box-shadow: 0 0 18px rgba(79,195,247,0.4); }
+.scan-btn.busy { animation: pulse 1s infinite; pointer-events: none; }
+
+/* ---------- scan overlay ---------- */
+.scan-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(2, 7, 17, 0.92);
+  display: flex; align-items: center; justify-content: center;
+}
+.scan-stage { position: relative; max-width: 82vw; max-height: 84vh; }
+.scan-stage img {
+  max-width: 82vw; max-height: 84vh; display: block;
+  border: 1px solid rgba(79,195,247,0.5);
+  box-shadow: 0 0 60px rgba(79,195,247,0.25);
+}
+.scan-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.scan-lines line { stroke: var(--cyan); stroke-width: 1.2; }
+.scan-lines circle { fill: var(--cyan-bright); stroke: var(--cyan); }
+#scanLabels .callout {
+  position: absolute; transform: translateY(-50%);
+  max-width: 240px; padding: 8px 12px;
+  background: rgba(8, 24, 48, 0.9); border: 1px solid rgba(79,195,247,0.6);
+  border-radius: 3px; font-size: 12px;
+  box-shadow: 0 0 16px rgba(79,195,247,0.25);
+  animation: fadein 0.4s ease both;
+}
+#scanLabels .callout b { color: var(--cyan-bright); display: block; letter-spacing: 0.12em; }
+#scanLabels .callout span { opacity: 0.8; font-size: 11px; }
+@keyframes fadein { from { opacity: 0; } }
+.scan-close {
+  position: fixed; top: 22px; right: 30px; z-index: 51;
+  background: transparent; color: var(--cyan-bright);
+  border: 1px solid rgba(79,195,247,0.5); border-radius: 4px;
+  padding: 8px 16px; cursor: pointer; letter-spacing: 0.2em;
+}
+
 .statusline {
   position: fixed; bottom: 0; left: 0; right: 0;
   padding: 8px 28px; font-size: 11px; letter-spacing: 0.3em;

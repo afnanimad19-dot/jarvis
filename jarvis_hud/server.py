@@ -1,5 +1,6 @@
 """FastAPI server: serves the HUD page, streams camera frames + tracking
-over a WebSocket, and exposes chat (Claude) and TTS (ElevenLabs) endpoints.
+over a WebSocket, and exposes chat (LLM), scan (vision labeling), gesture
+mouse control, and TTS (ElevenLabs) endpoints.
 
 Binds to 127.0.0.1 by default — this is a personal, local assistant.
 """
@@ -16,13 +17,16 @@ from pydantic import BaseModel
 from . import voice
 from .brain import JarvisBrain
 from .config import settings
+from .gesture import GestureMouse
+from .llm import LLMError
 from .vision.camera import VisionEngine
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
-app = FastAPI(title="JARVIS HUD", version="0.1.0")
+app = FastAPI(title="JARVIS HUD", version="0.2.0")
 engine = VisionEngine()
 brain = JarvisBrain()
+gesture = GestureMouse(engine)
 
 
 @app.on_event("startup")
@@ -32,6 +36,7 @@ def _startup():
 
 @app.on_event("shutdown")
 def _shutdown():
+    gesture.set_enabled(False)
     engine.stop()
 
 
@@ -47,8 +52,9 @@ def index():
 def get_config():
     return {
         "bot_name": settings.bot_name,
-        "model": settings.model,
+        "provider": brain.provider_name,
         "tts_available": voice.is_configured(),
+        "gesture_enabled": gesture.enabled,
     }
 
 
@@ -65,9 +71,45 @@ def chat(req: ChatRequest):
         frame_b64 = base64.standard_b64encode(jpeg).decode("ascii")
     try:
         reply = brain.chat(req.message, tracking=tracking, frame_jpeg_b64=frame_b64)
-    except RuntimeError as exc:
+    except LLMError as exc:
         return JSONResponse(status_code=502, content={"error": str(exc)})
     return {"reply": reply}
+
+
+class ScanRequest(BaseModel):
+    hint: str = ""
+
+
+@app.post("/api/scan")
+def scan(req: ScanRequest):
+    jpeg, _tracking = engine.snapshot()
+    if not jpeg:
+        return JSONResponse(status_code=409, content={"error": "No camera frame available."})
+    frame_b64 = base64.standard_b64encode(jpeg).decode("ascii")
+    try:
+        annotations = brain.scan(frame_b64, hint=req.hint)
+    except LLMError as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    # Return the exact frame that was analyzed so overlay lines line up.
+    return {"annotations": annotations, "frame": frame_b64}
+
+
+class GestureRequest(BaseModel):
+    enabled: bool
+
+
+@app.post("/api/gesture")
+def set_gesture(req: GestureRequest):
+    ok = gesture.set_enabled(req.enabled)
+    if not ok:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": f"Gesture control unavailable: {gesture.error} "
+                "(pip install pynput screeninfo, and run on a machine with a display)."
+            },
+        )
+    return {"enabled": gesture.enabled}
 
 
 @app.post("/api/reset")
@@ -98,7 +140,7 @@ async def ws_vision(ws: WebSocket):
     try:
         while True:
             jpeg, tracking = engine.snapshot()
-            payload = {"type": "vision", "tracking": tracking}
+            payload = {"type": "vision", "tracking": tracking, "gesture": gesture.enabled}
             if jpeg:
                 payload["frame"] = base64.standard_b64encode(jpeg).decode("ascii")
             await ws.send_json(payload)
@@ -111,6 +153,7 @@ def main():
     import uvicorn
 
     print(f"[{settings.bot_name}] HUD online -> http://{settings.host}:{settings.port}")
+    print(f"[{settings.bot_name}] brain provider: {brain.provider_name}")
     uvicorn.run(app, host=settings.host, port=settings.port, log_level="warning")
 
 

@@ -73,21 +73,30 @@ class HandTracker:
                 )
 
                 tip = hand_landmarks.landmark[FINGERTIPS["index"]]
+                thumb = hand_landmarks.landmark[FINGERTIPS["thumb"]]
                 tip_x, tip_y = int(tip.x * w), int(tip.y * h)
                 fingers = count_fingers_up(hand_landmarks, label)
 
                 xs = [p.x for p in hand_landmarks.landmark]
                 ys = [p.y for p in hand_landmarks.landmark]
+                bbox_diag = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2) ** 0.5 or 1e-6
+                pinch_dist = ((tip.x - thumb.x) ** 2 + (tip.y - thumb.y) ** 2) ** 0.5
+                pinch_ratio = pinch_dist / bbox_diag
+                pinch = pinch_ratio < 0.22
+
                 hands.append(
                     {
                         "label": label,
                         "fingers_up": fingers,
-                        "gesture": GESTURES.get(fingers, "unknown"),
+                        "gesture": "pinch" if pinch else GESTURES.get(fingers, "unknown"),
                         "index_tip": [tip_x, tip_y],
+                        "pinch": pinch,
+                        "pinch_ratio": round(pinch_ratio, 2),
                         "bbox_norm": [min(xs), min(ys), max(xs), max(ys)],
                     }
                 )
-                cv2.circle(frame_bgr, (tip_x, tip_y), 6, (255, 200, 0), -1)
+                color = (0, 120, 255) if pinch else (255, 200, 0)
+                cv2.circle(frame_bgr, (tip_x, tip_y), 8 if pinch else 6, color, -1)
 
         return hands
 

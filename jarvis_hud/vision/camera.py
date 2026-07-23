@@ -118,6 +118,7 @@ class VisionEngine:
                     self._jpeg = buf.tobytes()
                 self._tracking = {
                     "camera": True,
+                    "frame_size": [frame.shape[1], frame.shape[0]],
                     "hands": hand_data,
                     "face": face_data,
                     "objects": object_data,
