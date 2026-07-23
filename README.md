@@ -6,6 +6,8 @@ JARVIS is an open-source local control layer that gives Codex and other coding a
 
 [Start in five minutes](#five-minute-quick-start) · [Read the safety model](#safety-model) · [Troubleshoot](#troubleshooting)
 
+> **New — JARVIS HUD:** this fork also ships a personal vision + voice assistant (camera, hand/face tracking, Iron-Man-style HUD, Claude Fable 5 brain, optional ElevenLabs voice). See [docs/JARVIS_HUD.md](docs/JARVIS_HUD.md).
+
 Release version: `0.1.0-alpha.1` · intended tag: `v0.1.0-alpha.1`
 
 Public repository: [https://github.com/adithyakupad/jarvis](https://github.com/adithyakupad/jarvis)

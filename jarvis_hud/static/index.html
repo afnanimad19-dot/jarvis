@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>J.A.R.V.I.S.</title>
+  <link rel="stylesheet" href="/static/hud.css" />
+</head>
+<body>
+  <div class="vignette"></div>
+
+  <header class="topbar">
+    <div class="brand" id="botName">J.A.R.V.I.S.</div>
+    <div class="clock" id="clock">--:--:--</div>
+  </header>
+
+  <main class="stage">
+    <!-- Left: telemetry -->
+    <aside class="panel left">
+      <h2>// SENSORS</h2>
+      <div class="row"><span>CAMERA</span><b id="tCamera">OFFLINE</b></div>
+      <div class="row"><span>FPS</span><b id="tFps">0</b></div>
+      <div class="row"><span>HANDS</span><b id="tHands">0</b></div>
+      <div class="row"><span>LEFT HAND</span><b id="tLeft">—</b></div>
+      <div class="row"><span>RIGHT HAND</span><b id="tRight">—</b></div>
+      <div class="row"><span>FACE</span><b id="tFace">—</b></div>
+      <div class="row"><span>HEAD YAW</span><b id="tYaw">—</b></div>
+      <div class="row"><span>HEAD PITCH</span><b id="tPitch">—</b></div>
+      <div class="row"><span>OBJECTS</span><b id="tObjects">—</b></div>
+      <div class="binary" id="binaryTicker">000000000000</div>
+    </aside>
+
+    <!-- Center: arc reactor + camera core -->
+    <section class="reactor">
+      <svg class="rings" viewBox="0 0 600 600" aria-hidden="true">
+        <g class="ring slow">
+          <circle cx="300" cy="300" r="285" class="thin faint"/>
+          <path d="M 300 15 A 285 285 0 0 1 585 300" class="arc bright"/>
+          <path d="M 92 92 A 285 285 0 0 0 300 585" class="arc mid" transform="rotate(120 300 300)"/>
+        </g>
+        <g class="ring reverse">
+          <circle cx="300" cy="300" r="248" class="dashes"/>
+          <path d="M 300 52 A 248 248 0 0 1 548 300" class="arc thin bright"/>
+        </g>
+        <g class="ring slow2">
+          <circle cx="300" cy="300" r="210" class="thin faint"/>
+          <path d="M 300 90 A 210 210 0 0 1 510 300" class="arc heavy"/>
+          <path d="M 300 90 A 210 210 0 0 0 90 300" class="arc mid" transform="rotate(200 300 300)"/>
+        </g>
+        <g class="ring reverse2">
+          <circle cx="300" cy="300" r="172" class="ticks"/>
+        </g>
+        <g class="ring slow">
+          <circle cx="300" cy="300" r="140" class="thin"/>
+          <path d="M 300 160 A 140 140 0 0 1 440 300" class="arc bright"/>
+        </g>
+      </svg>
+      <div class="core">
+        <img id="cam" alt="" />
+        <div class="core-glow"></div>
+        <div class="core-msg" id="coreMsg">CONNECTING…</div>
+      </div>
+    </section>
+
+    <!-- Right: console -->
+    <aside class="panel right">
+      <h2>// CONSOLE</h2>
+      <div class="chat" id="chatLog"></div>
+      <div class="controls">
+        <label class="opt"><input type="checkbox" id="attachFrame" /> attach frame</label>
+        <label class="opt"><input type="checkbox" id="speak" checked /> voice</label>
+      </div>
+      <div class="inputbar">
+        <button id="micBtn" title="Voice input">◉</button>
+        <input id="chatInput" type="text" placeholder="Speak or type a command…" autocomplete="off" />
+        <button id="sendBtn">SEND</button>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="statusline" id="statusLine">SYSTEMS NOMINAL</footer>
+
+  <script src="/static/hud.js"></script>
+</body>
+</html>
