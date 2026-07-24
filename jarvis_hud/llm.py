@@ -13,6 +13,8 @@ History format is provider-neutral:
          | {"type": "image_jpeg_b64", "data": str}
 """
 
+import time
+
 from .config import settings
 
 FALLBACK_BETA = "server-side-fallback-2026-06-01"
@@ -92,6 +94,40 @@ class OpenAICompatibleProvider:
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key or "local",
         )
+        self._discovered = None  # (timestamp, all_free_ids, vision_free_ids)
+
+    def _discover_free_models(self):
+        """All :free model ids on the gateway — the automatic fallback pool."""
+        if not settings.llm_auto_fallbacks:
+            return [], []
+        if self._discovered and time.time() - self._discovered[0] < 600:
+            return self._discovered[1], self._discovered[2]
+        try:
+            import httpx
+
+            resp = httpx.get(settings.llm_base_url.rstrip("/") + "/models", timeout=15)
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+        except Exception:
+            # Network hiccup: keep whatever we had; never break chat over this.
+            return (self._discovered[1], self._discovered[2]) if self._discovered else ([], [])
+
+        free, vision = [], []
+        for m in data:
+            mid = m.get("id", "")
+            if not mid.endswith(":free"):
+                continue
+            if "safety" in mid or "guard" in mid:  # classifiers, not chat models
+                continue
+            free.append(mid)
+            modalities = (m.get("architecture") or {}).get("input_modalities") or []
+            if "image" in modalities:
+                vision.append(mid)
+        # Vision-capable models first even for text — they handle both.
+        free.sort(key=lambda mid: mid not in vision)
+        self._discovered = (time.time(), free, vision)
+        print(f"[LLM] free-model pool refreshed: {len(free)} models ({len(vision)} with vision)")
+        return free, vision
 
     # Errors worth retrying on the next model in the chain.
     _RETRYABLE = (402, 404, 408, 429, 500, 502, 503, 529)
@@ -101,8 +137,18 @@ class OpenAICompatibleProvider:
         for turn in history:
             messages.append({"role": turn["role"], "content": self._convert(turn["content"])})
 
-        models = [settings.llm_model]
-        models += [m for m in settings.llm_fallback_models if m not in models]
+        has_images = any(
+            part["type"] == "image_jpeg_b64" for turn in history for part in turn["content"]
+        )
+        all_free, vision_free = self._discover_free_models()
+        pool = vision_free if has_images else all_free
+
+        seen, models = set(), []
+        for mid in [settings.llm_model, *settings.llm_fallback_models, *pool]:
+            if mid and mid not in seen:
+                seen.add(mid)
+                models.append(mid)
+        models = models[:12]  # enough depth to survive congestion, bounded latency
 
         last_error = None
         for i, model in enumerate(models):
@@ -140,6 +186,8 @@ class OpenAICompatibleProvider:
             choice = response.choices[0] if response.choices else None
             text = (choice.message.content or "") if choice else ""
             if text.strip():
+                if model != settings.llm_model:
+                    print(f"[LLM] primary busy — answered by fallback: {model}")
                 return text.strip()
             last_error = f"{model}: empty response"
             if not is_last:

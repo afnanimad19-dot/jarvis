@@ -78,6 +78,16 @@ class Settings:
             "JARVIS_LLM_MODEL", "google/gemma-4-31b-it:free"
         )
     )
+    # Auto-discover ALL free models from the gateway's /models endpoint and
+    # use them as the fallback chain (refreshed every 10 min). Default: on
+    # when talking to OpenRouter.
+    llm_auto_fallbacks: bool = field(
+        default_factory=lambda: _bool(
+            "JARVIS_LLM_AUTO_FALLBACKS",
+            "openrouter"
+            in os.environ.get("JARVIS_LLM_BASE_URL", "https://openrouter.ai/api/v1").lower(),
+        )
+    )
     # Tried in order when the primary model is rate-limited (429) or gone (404).
     llm_fallback_models: tuple = field(
         default_factory=lambda: tuple(
