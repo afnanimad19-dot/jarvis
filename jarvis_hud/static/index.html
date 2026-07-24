@@ -56,11 +56,10 @@
           <path d="M 300 160 A 140 140 0 0 1 440 300" class="arc bright"/>
         </g>
       </svg>
-      <div class="core" id="core" title="Click to show/hide camera">
-        <img id="cam" alt="" />
-        <div class="core-idle" id="coreIdle" hidden>
-          <div class="orb"></div>
-          <div class="idle-label">STANDBY</div>
+      <div class="core" id="core" title="Click to open the camera view">
+        <div class="core-name" id="coreName">JARVIS</div>
+        <div class="voice-bars" id="voiceBars">
+          <span></span><span></span><span></span><span></span><span></span>
         </div>
         <div class="core-glow"></div>
         <div class="core-msg" id="coreMsg">CONNECTING…</div>
@@ -83,6 +82,15 @@
       </div>
     </aside>
   </main>
+
+  <!-- Camera popup: opens on request ("Jarvis, turn on the camera") -->
+  <div id="camModal" class="cam-modal" hidden>
+    <div class="cam-frame">
+      <img id="cam" alt="" />
+      <button id="camClose" class="cam-close" title="Close camera view">✕</button>
+      <div class="cam-label">// LIVE SENSOR FEED</div>
+    </div>
+  </div>
 
   <!-- Scan overlay: frozen frame + callout labels with leader lines -->
   <div id="scanOverlay" class="scan-overlay" hidden>

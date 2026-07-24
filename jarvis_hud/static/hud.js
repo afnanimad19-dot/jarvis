@@ -9,6 +9,7 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
   botName = cfg.bot_name || "JARVIS";
   ttsAvailable = cfg.tts_available;
   $("botName").textContent = botName.split("").join(".") + ".";
+  $("coreName").textContent = botName.toUpperCase();
   document.title = botName;
   renderGesture(cfg.gesture_enabled);
   status("BRAIN: " + (cfg.provider || "?").toUpperCase() + " — SYSTEMS NOMINAL");
@@ -24,41 +25,36 @@ setInterval(() => {
   $("binaryTicker").textContent = s;
 }, 900);
 
-/* ---------- camera visibility (privacy-first: hidden until asked) ---------- */
-let camVisible = false;
+/* ---------- camera popup (opens only when asked) ---------- */
+let camOpen = false;
 
 function setCamera(on, silent) {
-  camVisible = on;
-  updateCore();
+  camOpen = on;
+  $("camModal").hidden = !on;
   if (silent) return;
   const reply = on
-    ? "Camera feed on screen."
-    : "Camera feed hidden. Sensors are still running in the background.";
+    ? "Camera view on screen."
+    : "Camera view closed. Sensors are still running in the background.";
   addMsg(botName, reply);
-  status(on ? "CAMERA FEED VISIBLE" : "CAMERA FEED HIDDEN — SENSORS ACTIVE");
+  status(on ? "CAMERA VIEW OPEN" : "CAMERA VIEW CLOSED — SENSORS ACTIVE");
   if ($("speak").checked) speak(reply);
-}
-
-function updateCore() {
-  const img = $("cam");
-  if (camVisible) {
-    img.classList.add("live");
-    $("coreIdle").hidden = true;
-  } else {
-    img.classList.remove("live");
-    $("coreIdle").hidden = false;
-  }
 }
 
 function parseCameraCommand(text) {
   const t = text.toLowerCase();
   if (!/\b(camera|cam|feed|yourself|myself|my face)\b/.test(t)) return null;
   if (/\b(hide|close|turn off|switch off|disable|stop showing)\b/.test(t)) return "hide";
-  if (/\b(open|show|display|turn on|switch on|enable|see|view)\b/.test(t)) return "show";
+  if (/\b(open|show|display|turn on|switch on|enable|see|view|pop)\b/.test(t)) return "show";
   return null;
 }
 
-$("core").onclick = () => setCamera(!camVisible);
+$("core").onclick = () => setCamera(!camOpen);
+$("camClose").onclick = () => setCamera(false);
+
+/* ---------- speaking animation ---------- */
+function setSpeaking(on) {
+  $("core").classList.toggle("speaking", on);
+}
 
 /* ---------- vision websocket ---------- */
 function connectVision() {
@@ -66,10 +62,8 @@ function connectVision() {
   ws.onmessage = (ev) => {
     const data = JSON.parse(ev.data);
     if (data.frame) {
-      const img = $("cam");
-      img.src = "data:image/jpeg;base64," + data.frame;
+      $("cam").src = "data:image/jpeg;base64," + data.frame;
       $("coreMsg").style.display = "none";
-      updateCore();
     }
     renderTracking(data.tracking || {});
     if (typeof data.gesture === "boolean" && data.gesture !== gestureOn) renderGesture(data.gesture);
@@ -77,7 +71,6 @@ function connectVision() {
   ws.onclose = () => {
     $("coreMsg").style.display = "";
     $("coreMsg").textContent = "RECONNECTING…";
-    $("coreIdle").hidden = true;
     setTimeout(connectVision, 1500);
   };
 }
@@ -197,7 +190,11 @@ async function speak(text) {
       });
       if (resp.ok) {
         const blob = await resp.blob();
-        new Audio(URL.createObjectURL(blob)).play();
+        const audio = new Audio(URL.createObjectURL(blob));
+        audio.onplay = () => setSpeaking(true);
+        audio.onended = () => setSpeaking(false);
+        audio.onerror = () => setSpeaking(false);
+        audio.play();
         return;
       }
     } catch (_) { /* fall through to browser voice */ }
@@ -206,6 +203,8 @@ async function speak(text) {
   const voice = speechSynthesis.getVoices().find(v => /en[-_]GB/i.test(v.lang));
   if (voice) u.voice = voice;
   u.rate = 1.05;
+  u.onstart = () => setSpeaking(true);
+  u.onend = () => setSpeaking(false);
   speechSynthesis.speak(u);
 }
 
@@ -337,5 +336,8 @@ function drawAnnotations(annotations) {
 
 $("scanClose").onclick = () => { $("scanOverlay").hidden = true; };
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") $("scanOverlay").hidden = true;
+  if (e.key === "Escape") {
+    $("scanOverlay").hidden = true;
+    if (camOpen) setCamera(false, true);
+  }
 });
