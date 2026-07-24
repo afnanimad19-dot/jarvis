@@ -212,11 +212,23 @@ async def ws_vision(ws: WebSocket):
         pass
 
 
+def _mask(secret: str) -> str:
+    return f"loaded ({secret[:9]}… {len(secret)} chars)" if secret else "NOT FOUND"
+
+
 def main():
     import uvicorn
 
-    print(f"[{settings.bot_name}] HUD online -> http://{settings.host}:{settings.port}")
-    print(f"[{settings.bot_name}] brain provider: {brain.provider_name}")
+    name = settings.bot_name
+    print(f"[{name}] HUD online -> http://{settings.host}:{settings.port}")
+    print(f"[{name}] brain provider: {brain.provider_name}")
+    if brain.provider_name == "openai_compatible":
+        print(f"[{name}] LLM gateway:  {settings.llm_base_url}  model: {settings.llm_model}")
+        print(f"[{name}] LLM api key:  {_mask(settings.llm_api_key)}")
+    print(f"[{name}] voice engine: {voice.provider_name()}")
+    if settings.elevenlabs_api_key or settings.elevenlabs_voice_id:
+        print(f"[{name}] elevenlabs key: {_mask(settings.elevenlabs_api_key)}  "
+              f"voice id: {settings.elevenlabs_voice_id or 'NOT SET'}")
     uvicorn.run(app, host=settings.host, port=settings.port, log_level="warning")
 
 

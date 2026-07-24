@@ -3,10 +3,18 @@
 import os
 from dataclasses import dataclass, field
 
-try:  # optional: load jarvis_hud/.env if python-dotenv is installed
+try:  # optional: load .env files if python-dotenv is installed
     from dotenv import load_dotenv
 
-    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+    _here = os.path.dirname(__file__)
+    # Look in jarvis_hud/.env (canonical), the repo root, and the CWD —
+    # people put the file in all three places; missing files are no-ops.
+    for _path in (
+        os.path.join(_here, ".env"),
+        os.path.join(os.path.dirname(_here), ".env"),
+        ".env",
+    ):
+        load_dotenv(_path)
 except ImportError:
     pass
 

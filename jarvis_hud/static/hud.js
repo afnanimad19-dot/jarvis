@@ -51,9 +51,15 @@ function parseCameraCommand(text) {
 $("core").onclick = () => setCamera(!camOpen);
 $("camClose").onclick = () => setCamera(false);
 
-/* ---------- speaking animation ---------- */
+/* ---------- speaking animation (also mutes the mic while talking) ---------- */
+let speakingNow = false;
 function setSpeaking(on) {
+  speakingNow = on;
   $("core").classList.toggle("speaking", on);
+  if (recognizer && wakeEnabled) {
+    if (on) { try { recognizer.stop(); } catch (_) {} }
+    else { setTimeout(() => { try { recognizer.start(); } catch (_) {} }, 350); }
+  }
 }
 
 /* ---------- vision websocket ---------- */
@@ -180,6 +186,7 @@ $("sendBtn").onclick = send;
 $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
 
 /* ---------- voice output ---------- */
+let ttsWarned = false;
 async function speak(text) {
   if (ttsAvailable) {
     try {
@@ -197,6 +204,12 @@ async function speak(text) {
         audio.play();
         return;
       }
+      if (!ttsWarned) {
+        ttsWarned = true;
+        let why = "HTTP " + resp.status;
+        try { why = (await resp.json()).error || why; } catch (_) {}
+        addMsg("SYSTEM", "ElevenLabs voice failed (" + why + ") — using the browser voice instead. Check ELEVENLABS_API_KEY / ELEVENLABS_VOICE_ID and your elevenlabs.io quota.");
+      }
     } catch (_) { /* fall through to browser voice */ }
   }
   const u = new SpeechSynthesisUtterance(text);
@@ -208,24 +221,102 @@ async function speak(text) {
   speechSynthesis.speak(u);
 }
 
-/* ---------- voice input (Web Speech API — Chrome/Edge) ---------- */
+/* ---------- always-on voice input with "Hey Jarvis" wake word ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (SR) {
-  const rec = new SR();
-  rec.lang = "en-US";
-  rec.interimResults = false;
-  let listening = false;
-  rec.onresult = (e) => {
-    $("chatInput").value = e.results[0][0].transcript;
+let recognizer = null;
+let wakeEnabled = false;
+let awaitingCommand = false;
+let awaitTimer = null;
+
+function wakeWords() {
+  const n = (botName || "jarvis").toLowerCase();
+  return ["hey " + n, "hi " + n, "okay " + n, "ok " + n, "alright " + n, n];
+}
+
+function handleUtterance(raw) {
+  const text = raw.trim();
+  if (!text || speakingNow) return;
+  const lower = text.toLowerCase();
+
+  if (awaitingCommand) {
+    clearTimeout(awaitTimer);
+    awaitingCommand = false;
+    $("chatInput").value = text;
     send();
+    return;
+  }
+
+  for (const w of wakeWords()) {
+    const idx = lower.indexOf(w);
+    if (idx === -1) continue;
+    const rest = text.slice(idx + w.length).replace(/^[\s,.!?:;-]+/, "");
+    if (rest.length > 1) {
+      $("chatInput").value = rest;
+      send();
+    } else {
+      // Just "Hey Jarvis" — acknowledge and wait for the actual command.
+      awaitingCommand = true;
+      addMsg(botName, "Yes?");
+      if ($("speak").checked) speak("Yes?");
+      status("LISTENING FOR YOUR COMMAND…");
+      awaitTimer = setTimeout(() => {
+        awaitingCommand = false;
+        status("SYSTEMS NOMINAL");
+      }, 9000);
+    }
+    return;
+  }
+}
+
+function startListening() {
+  recognizer = new SR();
+  recognizer.lang = "en-US";
+  recognizer.continuous = true;
+  recognizer.interimResults = false;
+  recognizer.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) handleUtterance(e.results[i][0].transcript);
+    }
   };
-  rec.onend = () => { listening = false; $("micBtn").classList.remove("listening"); };
-  $("micBtn").onclick = () => {
-    if (listening) { rec.stop(); return; }
-    listening = true;
-    $("micBtn").classList.add("listening");
-    rec.start();
+  recognizer.onend = () => {
+    // Chrome stops recognition periodically — restart to stay always-on.
+    if (wakeEnabled && !speakingNow) {
+      setTimeout(() => { try { recognizer.start(); } catch (_) {} }, 400);
+    }
   };
+  recognizer.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      wakeEnabled = false;
+      renderMic();
+      addMsg("SYSTEM",
+        "Microphone blocked. Click the camera/mic icon in Chrome's address bar, allow the microphone, then click the ◉ button.");
+      status("MICROPHONE BLOCKED");
+    }
+  };
+  try { recognizer.start(); } catch (_) {}
+}
+
+function renderMic() {
+  $("micBtn").classList.toggle("listening", wakeEnabled);
+  $("micBtn").title = wakeEnabled
+    ? "Always listening for 'Hey " + botName + "' — click to mute"
+    : "Click to enable 'Hey " + botName + "' listening";
+}
+
+function setWake(on) {
+  wakeEnabled = on;
+  if (on) startListening();
+  else if (recognizer) { try { recognizer.stop(); } catch (_) {} }
+  renderMic();
+  status(on
+    ? 'WAKE WORD ACTIVE — SAY "HEY ' + (botName || "JARVIS").toUpperCase() + '"'
+    : "MICROPHONE MUTED");
+}
+
+if (SR) {
+  $("micBtn").onclick = () => setWake(!wakeEnabled);
+  // Auto-arm on load; Chrome will ask for mic permission the first time.
+  setTimeout(() => setWake(true), 1200);
 } else {
   $("micBtn").disabled = true;
   $("micBtn").title = "Voice input needs Chrome or Edge";

@@ -47,6 +47,10 @@ def is_configured() -> bool:
     return _provider() != "off"
 
 
+def provider_name() -> str:
+    return _provider()
+
+
 async def synthesize(text: str):
     """Returns (audio_bytes, mime_type) or (None, None) when unavailable."""
     provider = _provider()

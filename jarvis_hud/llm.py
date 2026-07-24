@@ -105,10 +105,14 @@ class OpenAICompatibleProvider:
             )
         except self._openai.APIStatusError as exc:
             detail = getattr(exc, "message", str(exc))
+            hint = (
+                "if 404/400, the model id may be wrong or no longer free; pick another"
+            )
+            if exc.status_code == 401:
+                hint = f"auth problem — {_key_diagnostic()}"
             raise LLMError(
                 f"LLM gateway error {exc.status_code}: {detail} "
-                f"(model={settings.llm_model!r}, base_url={settings.llm_base_url!r} — "
-                "if 404/400, the model id may be wrong or no longer free; pick another)."
+                f"(model={settings.llm_model!r}, base_url={settings.llm_base_url!r} — {hint})."
             ) from exc
         except self._openai.APIConnectionError as exc:
             raise LLMError(
@@ -137,6 +141,16 @@ class OpenAICompatibleProvider:
                     }
                 )
         return out
+
+
+def _key_diagnostic() -> str:
+    key = settings.llm_api_key
+    if not key:
+        return "NO API key was loaded; put OPENROUTER_API_KEY=sk-or-... in jarvis_hud/.env and restart"
+    return (
+        f"a key WAS loaded (starts {key[:9]!r}, {len(key)} chars) but the gateway rejected it — "
+        "check it has no quotes/spaces, is not the sk-or-... placeholder, and is still valid on openrouter.ai/keys"
+    )
 
 
 def build_provider():
