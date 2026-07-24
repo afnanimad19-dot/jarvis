@@ -78,6 +78,17 @@ class Settings:
             "JARVIS_LLM_MODEL", "google/gemma-4-31b-it:free"
         )
     )
+    # Tried in order when the primary model is rate-limited (429) or gone (404).
+    llm_fallback_models: tuple = field(
+        default_factory=lambda: tuple(
+            m.strip()
+            for m in os.environ.get(
+                "JARVIS_LLM_FALLBACK_MODELS",
+                "google/gemma-4-26b-a4b-it:free,nvidia/nemotron-nano-12b-v2-vl:free",
+            ).split(",")
+            if m.strip()
+        )
+    )
 
     max_tokens: int = field(default_factory=lambda: _int("JARVIS_MAX_TOKENS", 4096))
 

@@ -93,36 +93,59 @@ class OpenAICompatibleProvider:
             api_key=settings.llm_api_key or "local",
         )
 
+    # Errors worth retrying on the next model in the chain.
+    _RETRYABLE = (402, 404, 408, 429, 500, 502, 503, 529)
+
     def chat(self, system: str, history: list) -> str:
         messages = [{"role": "system", "content": system}]
         for turn in history:
             messages.append({"role": turn["role"], "content": self._convert(turn["content"])})
-        try:
-            response = self._client.chat.completions.create(
-                model=settings.llm_model,
-                max_tokens=settings.max_tokens,
-                messages=messages,
-            )
-        except self._openai.APIStatusError as exc:
-            detail = getattr(exc, "message", str(exc))
-            hint = (
-                "if 404/400, the model id may be wrong or no longer free; pick another"
-            )
-            if exc.status_code == 401:
-                hint = f"auth problem — {_key_diagnostic()}"
-            raise LLMError(
-                f"LLM gateway error {exc.status_code}: {detail} "
-                f"(model={settings.llm_model!r}, base_url={settings.llm_base_url!r} — {hint})."
-            ) from exc
-        except self._openai.APIConnectionError as exc:
-            raise LLMError(
-                f"Cannot reach LLM gateway at {settings.llm_base_url!r}. "
-                "Is OmniRoute running / is your network up?"
-            ) from exc
 
-        choice = response.choices[0] if response.choices else None
-        text = (choice.message.content or "") if choice else ""
-        return text.strip()
+        models = [settings.llm_model]
+        models += [m for m in settings.llm_fallback_models if m not in models]
+
+        last_error = None
+        for i, model in enumerate(models):
+            is_last = i == len(models) - 1
+            try:
+                response = self._client.chat.completions.create(
+                    model=model,
+                    max_tokens=settings.max_tokens,
+                    messages=messages,
+                )
+            except self._openai.APIStatusError as exc:
+                detail = getattr(exc, "message", str(exc))
+                if exc.status_code in self._RETRYABLE and not is_last:
+                    last_error = f"{model}: {exc.status_code}"
+                    continue  # try the next model in the chain
+                hint = "if 404/400, the model id may be wrong or no longer free; pick another"
+                if exc.status_code == 401:
+                    hint = f"auth problem — {_key_diagnostic()}"
+                elif exc.status_code == 429:
+                    hint = (
+                        "every model in the chain is rate-limited right now "
+                        f"(tried: {', '.join(models)}) — wait a minute, or run OmniRoute / "
+                        "add more ids to JARVIS_LLM_FALLBACK_MODELS"
+                    )
+                raise LLMError(
+                    f"LLM gateway error {exc.status_code}: {detail} "
+                    f"(model={model!r}, base_url={settings.llm_base_url!r} — {hint})."
+                ) from exc
+            except self._openai.APIConnectionError as exc:
+                raise LLMError(
+                    f"Cannot reach LLM gateway at {settings.llm_base_url!r}. "
+                    "Is OmniRoute running / is your network up?"
+                ) from exc
+
+            choice = response.choices[0] if response.choices else None
+            text = (choice.message.content or "") if choice else ""
+            if text.strip():
+                return text.strip()
+            last_error = f"{model}: empty response"
+            if not is_last:
+                continue
+
+        raise LLMError(f"All models in the chain failed (last: {last_error}).")
 
     @staticmethod
     def _convert(parts):
