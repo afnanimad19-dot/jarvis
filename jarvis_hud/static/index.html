@@ -56,8 +56,12 @@
           <path d="M 300 160 A 140 140 0 0 1 440 300" class="arc bright"/>
         </g>
       </svg>
-      <div class="core">
+      <div class="core" id="core" title="Click to show/hide camera">
         <img id="cam" alt="" />
+        <div class="core-idle" id="coreIdle" hidden>
+          <div class="orb"></div>
+          <div class="idle-label">STANDBY</div>
+        </div>
         <div class="core-glow"></div>
         <div class="core-msg" id="coreMsg">CONNECTING…</div>
       </div>

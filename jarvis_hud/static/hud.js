@@ -24,6 +24,42 @@ setInterval(() => {
   $("binaryTicker").textContent = s;
 }, 900);
 
+/* ---------- camera visibility (privacy-first: hidden until asked) ---------- */
+let camVisible = false;
+
+function setCamera(on, silent) {
+  camVisible = on;
+  updateCore();
+  if (silent) return;
+  const reply = on
+    ? "Camera feed on screen."
+    : "Camera feed hidden. Sensors are still running in the background.";
+  addMsg(botName, reply);
+  status(on ? "CAMERA FEED VISIBLE" : "CAMERA FEED HIDDEN — SENSORS ACTIVE");
+  if ($("speak").checked) speak(reply);
+}
+
+function updateCore() {
+  const img = $("cam");
+  if (camVisible) {
+    img.classList.add("live");
+    $("coreIdle").hidden = true;
+  } else {
+    img.classList.remove("live");
+    $("coreIdle").hidden = false;
+  }
+}
+
+function parseCameraCommand(text) {
+  const t = text.toLowerCase();
+  if (!/\b(camera|cam|feed|yourself|myself|my face)\b/.test(t)) return null;
+  if (/\b(hide|close|turn off|switch off|disable|stop showing)\b/.test(t)) return "hide";
+  if (/\b(open|show|display|turn on|switch on|enable|see|view)\b/.test(t)) return "show";
+  return null;
+}
+
+$("core").onclick = () => setCamera(!camVisible);
+
 /* ---------- vision websocket ---------- */
 function connectVision() {
   const ws = new WebSocket(`ws://${location.host}/ws/vision`);
@@ -32,8 +68,8 @@ function connectVision() {
     if (data.frame) {
       const img = $("cam");
       img.src = "data:image/jpeg;base64," + data.frame;
-      img.classList.add("live");
       $("coreMsg").style.display = "none";
+      updateCore();
     }
     renderTracking(data.tracking || {});
     if (typeof data.gesture === "boolean" && data.gesture !== gestureOn) renderGesture(data.gesture);
@@ -41,6 +77,7 @@ function connectVision() {
   ws.onclose = () => {
     $("coreMsg").style.display = "";
     $("coreMsg").textContent = "RECONNECTING…";
+    $("coreIdle").hidden = true;
     setTimeout(connectVision, 1500);
   };
 }
@@ -84,6 +121,10 @@ async function send() {
   // Console commands: /crawl <url> [question]   /post <text>
   if (message.startsWith("/crawl ")) return crawlCommand(message.slice(7).trim());
   if (message.startsWith("/post ")) return postCommand(message.slice(6).trim());
+
+  // Spoken camera commands: "show me my camera", "hide the camera", ...
+  const camCmd = parseCameraCommand(message);
+  if (camCmd) return setCamera(camCmd === "show");
 
   status("PROCESSING…");
   try {

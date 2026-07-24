@@ -12,6 +12,9 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* The hidden attribute must always win, even over display rules below. */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   overflow: hidden;
@@ -118,6 +121,21 @@ html, body {
 .core-msg {
   position: absolute; font-size: 12px; color: var(--cyan);
   letter-spacing: 0.3em; animation: pulse 2s ease-in-out infinite;
+}
+.core { cursor: pointer; }
+.core-idle {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px;
+}
+.core-idle .orb {
+  width: 34%; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle, rgba(143,227,255,0.95) 0%, rgba(79,195,247,0.25) 55%, transparent 72%);
+  box-shadow: 0 0 46px rgba(79,195,247,0.65);
+  animation: pulse 3s ease-in-out infinite;
+}
+.core-idle .idle-label {
+  font-size: 11px; letter-spacing: 0.4em; color: var(--cyan); opacity: 0.8;
 }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
