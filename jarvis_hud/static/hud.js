@@ -121,9 +121,38 @@ async function send() {
   if (message.startsWith("/crawl ")) return crawlCommand(message.slice(7).trim());
   if (message.startsWith("/post ")) return postCommand(message.slice(6).trim());
 
-  // Spoken camera commands: "show me my camera", "hide the camera", ...
+  // Spoken commands, checked in order:
+  const lower = message.toLowerCase();
+
+  // Virtual keyboard: "bring up the keyboard" / "hide the keyboard"
+  if (/\bkeyboard\b/.test(lower)) {
+    if (/\b(hide|close|remove|put away)\b/.test(lower)) return setKeyboard(false);
+    if (/\b(bring|show|open|display|pop|up)\b/.test(lower)) return setKeyboard(true);
+  }
+
+  // Camera: "show me my camera", "hide the camera", ...
   const camCmd = parseCameraCommand(message);
   if (camCmd) return setCamera(camCmd === "show");
+
+  // Screen awareness: "what's on my screen / monitor 2 / my tabs"
+  if (/\b(screen|monitor|tabs?)\b/.test(lower) &&
+      /\b(what|see|look|read|check|describe|show me what|open on)\b/.test(lower)) {
+    const m = lower.match(/monitor\s+(\d)/);
+    return screenCommand(message, m ? parseInt(m[1], 10) : 0);
+  }
+
+  // Web search: "search for iron man suit", "google best mediapipe tutorial"
+  const searchMatch = message.match(/^(?:search(?:\s+(?:the\s+web|google|online))?(?:\s+for)?|google(?:\s+for)?|look\s+up)\s+(.+)/i);
+  if (searchMatch) return searchCommand(searchMatch[1]);
+
+  // System report: "system status", "how's the system"
+  if (/\bsystem\s+(status|report|check)\b/.test(lower) || /\bhow('s| is) (the )?system\b/.test(lower)) {
+    return systemCommand();
+  }
+
+  // Window control: "maximize/minimize this window"
+  const winMatch = lower.match(/\b(maximize|minimize|restore)\b.*\b(window|this|tab)\b/);
+  if (winMatch) return windowCommand(winMatch[1]);
 
   status("PROCESSING…");
   try {
@@ -180,6 +209,116 @@ async function postCommand(text) {
     addMsg("SYSTEM", "Post error: " + err.message);
     status("DRAFT FAILED");
   }
+}
+
+async function screenCommand(question, monitor) {
+  status("ANALYZING SCREEN…");
+  try {
+    const resp = await fetch("/api/screen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, monitor }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    addMsg(botName, data.answer);
+    status("SCREEN ANALYSIS COMPLETE");
+    if ($("speak").checked) speak(data.answer);
+  } catch (err) {
+    addMsg("SYSTEM", "Screen error: " + err.message);
+    status("SCREEN ANALYSIS FAILED");
+  }
+}
+
+async function searchCommand(query) {
+  try {
+    const resp = await fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    const reply = "Searching for " + data.query + ". It's open in your browser.";
+    addMsg(botName, reply);
+    status("BROWSER SEARCH LAUNCHED");
+    if ($("speak").checked) speak(reply);
+  } catch (err) {
+    addMsg("SYSTEM", "Search error: " + err.message);
+  }
+}
+
+async function systemCommand() {
+  try {
+    const resp = await fetch("/api/system");
+    const s = await resp.json();
+    if (!resp.ok) throw new Error(s.error || resp.statusText);
+    let reply = `CPU at ${s.cpu_percent} percent. RAM at ${s.ram_percent} percent — ` +
+      `${s.ram_used_gb} of ${s.ram_total_gb} gigabytes. Disk ${s.disk_percent} percent full.`;
+    if (s.battery) reply += ` Battery ${s.battery.percent} percent${s.battery.plugged ? ", charging" : ""}.`;
+    addMsg(botName, reply);
+    if ($("speak").checked) speak(reply);
+  } catch (err) {
+    addMsg("SYSTEM", "System report error: " + err.message);
+  }
+}
+
+async function windowCommand(action) {
+  try {
+    const resp = await fetch("/api/window", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    const reply = action + "d " + data.title + ".";
+    addMsg(botName, reply);
+    if ($("speak").checked) speak(reply);
+  } catch (err) {
+    addMsg("SYSTEM", "Window error: " + err.message);
+  }
+}
+
+/* ---------- virtual keyboard (types into the console input) ---------- */
+let vkShift = false;
+
+function buildKeyboard() {
+  const kb = $("vkeyboard");
+  kb.innerHTML = "";
+  const rows = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"];
+  rows.forEach((row) => {
+    const div = document.createElement("div");
+    div.className = "krow";
+    row.split("").forEach((ch) => {
+      const b = document.createElement("button");
+      b.textContent = vkShift ? ch.toUpperCase() : ch;
+      b.onclick = () => { $("chatInput").value += vkShift ? ch.toUpperCase() : ch; };
+      div.appendChild(b);
+    });
+    kb.appendChild(div);
+  });
+  const last = document.createElement("div");
+  last.className = "krow";
+  const mk = (label, cls, fn) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.className = cls; b.onclick = fn;
+    last.appendChild(b);
+  };
+  mk("⇧", "wide", () => { vkShift = !vkShift; buildKeyboard(); });
+  mk("SPACE", "wide space", () => { $("chatInput").value += " "; });
+  mk("⌫", "wide", () => { const i = $("chatInput"); i.value = i.value.slice(0, -1); });
+  mk("SEND ⏎", "wide", () => send());
+  mk("✕", "wide", () => setKeyboard(false));
+  kb.appendChild(last);
+}
+
+function setKeyboard(on) {
+  if (on) buildKeyboard();
+  $("vkeyboard").hidden = !on;
+  const reply = on ? "Keyboard up." : "Keyboard away.";
+  addMsg(botName, reply);
+  if ($("speak").checked) speak(reply);
 }
 
 $("sendBtn").onclick = send;

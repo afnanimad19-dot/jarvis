@@ -8,13 +8,14 @@ Binds to 127.0.0.1 by default — this is a personal, local assistant.
 import asyncio
 import base64
 import os
+import webbrowser
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import voice
+from . import control, screen, voice
 from .brain import JarvisBrain
 from .config import settings
 from .gesture import GestureMouse
@@ -168,6 +169,61 @@ def social_draft(req: DraftRequest):
     except Exception as exc:
         return JSONResponse(status_code=502, content={"error": f"Postiz error: {exc}"})
     return {"ok": True, "draft": result, "channels": channel_ids}
+
+
+class ScreenRequest(BaseModel):
+    question: str = ""
+    monitor: int = 0  # 0 = all monitors combined, 1..n = a single display
+
+
+@app.post("/api/screen")
+def look_at_screen(req: ScreenRequest):
+    """Capture the monitor(s) and answer a question about what's visible."""
+    try:
+        jpeg = screen.capture_jpeg(monitor=req.monitor)
+    except RuntimeError as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+    question = req.question or "Describe what is on my screen right now, briefly."
+    try:
+        answer = brain.look_at_image(base64.standard_b64encode(jpeg).decode("ascii"), question)
+    except LLMError as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    return {"answer": answer, "monitors": screen.monitor_count()}
+
+
+class SearchRequest(BaseModel):
+    query: str
+
+
+@app.post("/api/search")
+def web_search(req: SearchRequest):
+    """Open a Google search in the default browser (Opera if that's yours)."""
+    q = req.query.strip()
+    if not q:
+        return JSONResponse(status_code=400, content={"error": "Empty query."})
+    webbrowser.open("https://www.google.com/search?q=" + q.replace(" ", "+"))
+    return {"ok": True, "query": q}
+
+
+class WindowRequest(BaseModel):
+    action: str  # maximize | minimize | restore
+
+
+@app.post("/api/window")
+def window(req: WindowRequest):
+    try:
+        title = control.window_action(req.action)
+    except RuntimeError as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+    return {"ok": True, "title": title}
+
+
+@app.get("/api/system")
+def system():
+    try:
+        return control.system_status()
+    except RuntimeError as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @app.post("/api/reset")

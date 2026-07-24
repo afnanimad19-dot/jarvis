@@ -114,6 +114,20 @@ class JarvisBrain:
         ]
         return self._get_provider().chat(self._system, turn)
 
+    def look_at_image(self, jpeg_b64: str, question: str) -> str:
+        """One-shot vision question about an arbitrary image (e.g. a screen
+        capture). Does not touch chat history."""
+        turn = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_jpeg_b64", "data": jpeg_b64},
+                    {"type": "text", "text": question},
+                ],
+            }
+        ]
+        return self._get_provider().chat(self._system, turn)
+
     def scan(self, frame_jpeg_b64: str, hint: str = ""):
         """One-shot HUD scan: returns a list of {label, detail, x, y}."""
         hint_text = f" The owner adds: {hint!r}." if hint else ""
