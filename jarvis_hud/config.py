@@ -75,7 +75,7 @@ class Settings:
     )
     llm_model: str = field(
         default_factory=lambda: os.environ.get(
-            "JARVIS_LLM_MODEL", "qwen/qwen2.5-vl-72b-instruct:free"
+            "JARVIS_LLM_MODEL", "google/gemma-4-31b-it:free"
         )
     )
 
