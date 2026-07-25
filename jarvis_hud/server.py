@@ -226,6 +226,28 @@ def system():
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+class MemoryRequest(BaseModel):
+    action: str  # add | remove | clear
+    text: str = ""
+
+
+@app.get("/api/memory")
+def memory_list():
+    return {"facts": brain.memory.facts()}
+
+
+@app.post("/api/memory")
+def memory_edit(req: MemoryRequest):
+    if req.action == "add":
+        added = brain.memory.add_fact(req.text)
+        return {"ok": True, "added": added}
+    if req.action == "remove":
+        return {"ok": True, "removed": brain.memory.remove_facts(req.text)}
+    if req.action == "clear":
+        return {"ok": True, "cleared": brain.memory.clear_facts()}
+    return JSONResponse(status_code=400, content={"error": f"Unknown action {req.action!r}"})
+
+
 @app.post("/api/reset")
 def reset():
     brain.reset()

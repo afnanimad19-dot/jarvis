@@ -15,6 +15,7 @@ import re
 
 from .config import settings
 from .llm import LLMError, build_provider
+from .memory import Memory
 
 SYSTEM_PROMPT_TEMPLATE = """\
 You are {bot_name}, a personal AI assistant inspired by Iron Man's JARVIS, \
@@ -35,6 +36,12 @@ approval.
 attached frame actually shows. If the camera is off or telemetry is empty, \
 say so.
 - If you don't know something, say so plainly.
+
+Memory: when the owner tells you a durable personal fact, preference, or \
+standing instruction (name, projects, likes, schedule, "always do X"), append \
+<remember>that fact, third person, one line</remember> at the very end of \
+your reply. Only genuinely durable facts — never trivia, never things already \
+in your long-term memory list.
 """
 
 SCAN_PROMPT = """\
@@ -54,10 +61,15 @@ its most specific name.\
 class JarvisBrain:
     def __init__(self):
         self._provider = None
-        self._system = SYSTEM_PROMPT_TEMPLATE.format(
+        self._base_system = SYSTEM_PROMPT_TEMPLATE.format(
             bot_name=settings.bot_name, owner_name=settings.owner_name
         )
-        self._history = []  # provider-neutral turns
+        self.memory = Memory()
+        self._history = self.memory.load_history()  # survives restarts
+
+    @property
+    def _system(self) -> str:
+        return self._base_system + self.memory.facts_block()
 
     def _get_provider(self):
         if self._provider is None:
@@ -66,6 +78,7 @@ class JarvisBrain:
 
     def reset(self):
         self._history = []
+        self.memory.clear_history()
 
     @property
     def provider_name(self) -> str:
@@ -92,7 +105,14 @@ class JarvisBrain:
             raise
         if not reply:
             reply = "(no response)"
+
+        # Harvest facts the model chose to remember, then hide the tags.
+        for fact in re.findall(r"<remember>(.*?)</remember>", reply, re.DOTALL):
+            self.memory.add_fact(fact)
+        reply = re.sub(r"\s*<remember>.*?</remember>\s*", " ", reply, flags=re.DOTALL).strip()
+
         self._history.append({"role": "assistant", "content": [{"type": "text", "text": reply}]})
+        self.memory.save_history(self._history)
         return reply
 
     def research(self, page_markdown: str, url: str, question: str = "") -> str:

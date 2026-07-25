@@ -154,6 +154,16 @@ async function send() {
   const winMatch = lower.match(/\b(maximize|minimize|restore)\b.*\b(window|this|tab)\b/);
   if (winMatch) return windowCommand(winMatch[1]);
 
+  // Memory: "remember that ...", "what do you remember", "forget ..."
+  const remMatch = message.match(/^remember\s+(?:that\s+)?(.+)/i);
+  if (remMatch) return memoryCommand("add", remMatch[1]);
+  if (/\b(what do you (remember|know) about me|show (your |me your )?memory|list memories)\b/.test(lower)) {
+    return memoryCommand("list", "");
+  }
+  if (/^forget everything$/i.test(message.trim())) return memoryCommand("clear", "");
+  const forgetMatch = message.match(/^forget\s+(?:about\s+)?(.+)/i);
+  if (forgetMatch) return memoryCommand("remove", forgetMatch[1]);
+
   status("PROCESSING…");
   try {
     const resp = await fetch("/api/chat", {
@@ -277,6 +287,37 @@ async function windowCommand(action) {
     if ($("speak").checked) speak(reply);
   } catch (err) {
     addMsg("SYSTEM", "Window error: " + err.message);
+  }
+}
+
+async function memoryCommand(action, text) {
+  try {
+    if (action === "list") {
+      const resp = await fetch("/api/memory");
+      const data = await resp.json();
+      const facts = data.facts || [];
+      const reply = facts.length
+        ? "Here's what I remember:\n" + facts.map(f => "• " + f).join("\n")
+        : "My long-term memory is empty so far. Tell me things with 'remember that…'.";
+      addMsg(botName, reply);
+      if ($("speak").checked) speak(facts.length ? "I remember " + facts.length + " things. They're on screen." : reply);
+      return;
+    }
+    const resp = await fetch("/api/memory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, text }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    let reply;
+    if (action === "add") reply = data.added ? "Noted. I'll remember that." : "I already knew that.";
+    else if (action === "remove") reply = data.removed ? "Forgotten — removed " + data.removed + " memory item(s)." : "I had nothing matching that.";
+    else reply = "Memory wiped clean — " + data.cleared + " item(s) gone.";
+    addMsg(botName, reply);
+    if ($("speak").checked) speak(reply);
+  } catch (err) {
+    addMsg("SYSTEM", "Memory error: " + err.message);
   }
 }
 
