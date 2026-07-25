@@ -58,7 +58,7 @@ function setSpeaking(on) {
   $("core").classList.toggle("speaking", on);
   if (recognizer && wakeEnabled) {
     if (on) { try { recognizer.stop(); } catch (_) {} }
-    else { setTimeout(() => { try { recognizer.start(); } catch (_) {} }, 350); }
+    else { setTimeout(() => { if (wakeEnabled && recognizer) { try { recognizer.start(); } catch (_) {} } }, 350); }
   }
 }
 
@@ -367,6 +367,25 @@ let wakeEnabled = false;
 let awaitingCommand = false;
 let awaitTimer = null;
 
+// Conversation mode: after you address JARVIS once, he keeps answering
+// WITHOUT the wake word for this long (refreshed on every exchange).
+const CONVO_WINDOW_MS = 60000;
+let convoUntil = 0;
+
+function inConversation() {
+  return Date.now() < convoUntil;
+}
+
+function extendConversation() {
+  convoUntil = Date.now() + CONVO_WINDOW_MS;
+}
+
+function endConversation() {
+  convoUntil = 0;
+  awaitingCommand = false;
+  clearTimeout(awaitTimer);
+}
+
 function wakeWords() {
   const n = (botName || "jarvis").toLowerCase();
   return ["hey " + n, "hi " + n, "okay " + n, "ok " + n, "alright " + n, n];
@@ -377,9 +396,21 @@ function handleUtterance(raw) {
   if (!text || speakingNow) return;
   const lower = text.toLowerCase();
 
+  // "Go to sleep" / "that's all" ends conversation mode explicitly.
+  if (/\b(go to sleep|that'?s all|stop listening|stand down|standby)\b/.test(lower)) {
+    if (inConversation() || awaitingCommand) {
+      endConversation();
+      addMsg(botName, "Standing by. Say my name when you need me.");
+      if ($("speak").checked) speak("Standing by.");
+      status("STANDBY — WAKE WORD REQUIRED");
+    }
+    return;
+  }
+
   if (awaitingCommand) {
     clearTimeout(awaitTimer);
     awaitingCommand = false;
+    extendConversation();
     $("chatInput").value = text;
     send();
     return;
@@ -388,6 +419,7 @@ function handleUtterance(raw) {
   for (const w of wakeWords()) {
     const idx = lower.indexOf(w);
     if (idx === -1) continue;
+    extendConversation();
     const rest = text.slice(idx + w.length).replace(/^[\s,.!?:;-]+/, "");
     if (rest.length > 1) {
       $("chatInput").value = rest;
@@ -405,6 +437,14 @@ function handleUtterance(raw) {
     }
     return;
   }
+
+  // No wake word — but we're mid-conversation, so treat it as a command.
+  if (inConversation()) {
+    extendConversation();
+    $("chatInput").value = text;
+    send();
+  }
+  // Otherwise: not addressed to JARVIS — stay quiet.
 }
 
 function startListening() {
@@ -444,8 +484,18 @@ function renderMic() {
 
 function setWake(on) {
   wakeEnabled = on;
-  if (on) startListening();
-  else if (recognizer) { try { recognizer.stop(); } catch (_) {} }
+  if (on) {
+    startListening();
+  } else {
+    // Full mute: kill recognition AND any active conversation window, so
+    // nothing — not even "Jarvis" — triggers until unmuted.
+    endConversation();
+    if (recognizer) {
+      recognizer.onend = null;  // prevent the auto-restart handler
+      try { recognizer.stop(); } catch (_) {}
+      recognizer = null;
+    }
+  }
   renderMic();
   status(on
     ? 'WAKE WORD ACTIVE — SAY "HEY ' + (botName || "JARVIS").toUpperCase() + '"'
