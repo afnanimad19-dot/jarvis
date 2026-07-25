@@ -154,6 +154,23 @@ async function send() {
   const winMatch = lower.match(/\b(maximize|minimize|restore)\b.*\b(window|this|tab)\b/);
   if (winMatch) return windowCommand(winMatch[1]);
 
+  // Volume / media: "volume up", "mute the sound", "pause the music", "next song"
+  if (/\b(volume|sound|audio)\b/.test(lower)) {
+    if (/\b(up|higher|louder|increase|raise)\b/.test(lower)) return mediaCommand("volume_up", 3, "Volume up.");
+    if (/\b(down|lower|quieter|decrease|reduce)\b/.test(lower)) return mediaCommand("volume_down", 3, "Volume down.");
+    if (/\b(mute|unmute)\b/.test(lower)) return mediaCommand("mute", 1, "Toggled mute.");
+  }
+  if (/\b(pause|play|resume|stop)\b.*\b(music|song|media|video|playback)\b/.test(lower) ||
+      /\b(music|song|media|video)\b.*\b(pause|play|resume|stop)\b/.test(lower)) {
+    return mediaCommand("play_pause", 1, "Done.");
+  }
+  if (/\b(next|skip)\b.*\b(song|track)\b/.test(lower)) return mediaCommand("next", 1, "Skipping.");
+  if (/\b(previous|last|back)\b.*\b(song|track)\b/.test(lower)) return mediaCommand("previous", 1, "Going back.");
+
+  // App launching: "open notepad", "launch spotify", "start chrome"
+  const appMatch = message.match(/^(?:open|launch|start)\s+(?:the\s+|my\s+)?(.+)/i);
+  if (appMatch) return appCommand(appMatch[1]);
+
   // Memory: "remember that ...", "what do you remember", "forget ..."
   const remMatch = message.match(/^remember\s+(?:that\s+)?(.+)/i);
   if (remMatch) return memoryCommand("add", remMatch[1]);
@@ -296,6 +313,39 @@ async function windowCommand(action) {
     if ($("speak").checked) speak(reply);
   } catch (err) {
     addMsg("SYSTEM", "Window error: " + err.message);
+  }
+}
+
+async function mediaCommand(action, times, sayText) {
+  try {
+    const resp = await fetch("/api/media", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, times }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    addMsg(botName, sayText);
+    if ($("speak").checked && action.indexOf("volume") === -1) speak(sayText);
+  } catch (err) {
+    addMsg("SYSTEM", "Media error: " + err.message);
+  }
+}
+
+async function appCommand(name) {
+  try {
+    const resp = await fetch("/api/app", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    const reply = "Opening " + data.app + ".";
+    addMsg(botName, reply);
+    if ($("speak").checked) speak(reply);
+  } catch (err) {
+    addMsg("SYSTEM", "App error: " + err.message);
   }
 }
 

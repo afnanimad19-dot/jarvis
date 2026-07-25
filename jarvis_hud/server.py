@@ -226,6 +226,33 @@ def system():
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+class AppRequest(BaseModel):
+    name: str
+
+
+@app.post("/api/app")
+def open_app(req: AppRequest):
+    try:
+        opened = control.open_app(req.name)
+    except RuntimeError as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+    return {"ok": True, "app": opened}
+
+
+class MediaRequest(BaseModel):
+    action: str  # volume_up | volume_down | mute | play_pause | next | previous
+    times: int = 1
+
+
+@app.post("/api/media")
+def media(req: MediaRequest):
+    try:
+        control.media_action(req.action, req.times)
+    except RuntimeError as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+    return {"ok": True, "action": req.action}
+
+
 class MemoryRequest(BaseModel):
     action: str  # add | remove | clear
     text: str = ""

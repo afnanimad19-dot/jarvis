@@ -138,5 +138,18 @@ class Settings:
     host: str = field(default_factory=lambda: os.environ.get("JARVIS_HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: _int("JARVIS_PORT", 8765))
 
+    def __post_init__(self):
+        # Google AI Studio key (GEMINI_API_KEY): use Gemini's OpenAI-compatible
+        # endpoint directly — better free-tier limits than shared pools.
+        # An explicitly set JARVIS_LLM_BASE_URL always wins.
+        gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
+        if gemini_key and "JARVIS_LLM_BASE_URL" not in os.environ:
+            self.llm_base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+            self.llm_api_key = gemini_key
+            if "JARVIS_LLM_MODEL" not in os.environ:
+                self.llm_model = "gemini-2.5-flash"
+            if "JARVIS_LLM_FALLBACK_MODELS" not in os.environ:
+                self.llm_fallback_models = ("gemini-2.5-flash-lite", "gemini-2.0-flash")
+
 
 settings = Settings()
