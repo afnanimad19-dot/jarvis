@@ -77,7 +77,7 @@ def chat(req: ChatRequest):
         reply = brain.chat(req.message, tracking=tracking, frame_jpeg_b64=frame_b64)
     except LLMError as exc:
         return JSONResponse(status_code=502, content={"error": str(exc)})
-    return {"reply": reply}
+    return {"reply": reply, "model": brain.last_model}
 
 
 class ScanRequest(BaseModel):

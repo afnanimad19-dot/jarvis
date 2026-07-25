@@ -165,18 +165,27 @@ async function send() {
   if (forgetMatch) return memoryCommand("remove", forgetMatch[1]);
 
   status("PROCESSING…");
+  // If the brain takes more than ~2.5s, acknowledge out loud so it never
+  // feels dead while the model chain works.
+  const fillerTimer = setTimeout(() => {
+    status("STILL WORKING — MODEL CHAIN BUSY…");
+    if ($("speak").checked && speechQueue.length === 0 && !speechBusy) speak(pickFiller());
+  }, 2500);
   try {
     const resp = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, attach_frame: $("attachFrame").checked }),
     });
+    clearTimeout(fillerTimer);
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || resp.statusText);
     addMsg(botName, data.reply);
-    status("SYSTEMS NOMINAL");
+    const modelName = data.model ? data.model.split("/").pop().replace(":free", "") : "";
+    status(modelName ? "ONLINE — VIA " + modelName.toUpperCase() : "SYSTEMS NOMINAL");
     if ($("speak").checked) speak(data.reply);
   } catch (err) {
+    clearTimeout(fillerTimer);
     addMsg("SYSTEM", "Error: " + err.message);
     status("ERROR");
   }
@@ -365,9 +374,26 @@ function setKeyboard(on) {
 $("sendBtn").onclick = send;
 $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
 
-/* ---------- voice output ---------- */
+/* ---------- voice output (queued: one voice at a time, in order) ---------- */
 let ttsWarned = false;
-async function speak(text) {
+const speechQueue = [];
+let speechBusy = false;
+
+function speak(text) {
+  speechQueue.push(text);
+  pumpSpeech();
+}
+
+async function pumpSpeech() {
+  if (speechBusy || speechQueue.length === 0) return;
+  speechBusy = true;
+  const text = speechQueue.shift();
+  try { await speakNow(text); } catch (_) {}
+  speechBusy = false;
+  pumpSpeech();
+}
+
+async function speakNow(text) {
   if (ttsAvailable) {
     try {
       const resp = await fetch("/api/tts", {
@@ -377,11 +403,13 @@ async function speak(text) {
       });
       if (resp.ok) {
         const blob = await resp.blob();
-        const audio = new Audio(URL.createObjectURL(blob));
-        audio.onplay = () => setSpeaking(true);
-        audio.onended = () => setSpeaking(false);
-        audio.onerror = () => setSpeaking(false);
-        audio.play();
+        await new Promise((resolve) => {
+          const audio = new Audio(URL.createObjectURL(blob));
+          audio.onplay = () => setSpeaking(true);
+          audio.onended = () => { setSpeaking(false); resolve(); };
+          audio.onerror = () => { setSpeaking(false); resolve(); };
+          audio.play().catch(resolve);
+        });
         return;
       }
       if (!ttsWarned) {
@@ -392,14 +420,21 @@ async function speak(text) {
       }
     } catch (_) { /* fall through to browser voice */ }
   }
-  const u = new SpeechSynthesisUtterance(text);
-  const voice = speechSynthesis.getVoices().find(v => /en[-_]GB/i.test(v.lang));
-  if (voice) u.voice = voice;
-  u.rate = 1.05;
-  u.onstart = () => setSpeaking(true);
-  u.onend = () => setSpeaking(false);
-  speechSynthesis.speak(u);
+  await new Promise((resolve) => {
+    const u = new SpeechSynthesisUtterance(text);
+    const voice = speechSynthesis.getVoices().find(v => /en[-_]GB/i.test(v.lang));
+    if (voice) u.voice = voice;
+    u.rate = 1.05;
+    u.onstart = () => setSpeaking(true);
+    u.onend = () => { setSpeaking(false); resolve(); };
+    u.onerror = () => { setSpeaking(false); resolve(); };
+    speechSynthesis.speak(u);
+  });
 }
+
+/* Instant acknowledgment while the brain works */
+const FILLERS = ["On it.", "One moment.", "Checking that now.", "Working on it, Boss."];
+function pickFiller() { return FILLERS[Math.floor(Math.random() * FILLERS.length)]; }
 
 /* ---------- always-on voice input with "Hey Jarvis" wake word ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;

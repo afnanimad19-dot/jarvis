@@ -12,6 +12,7 @@ OpenAI-compatible gateway such as OpenRouter / a local OmniRoute).
 
 import json
 import re
+import threading
 
 from .config import settings
 from .llm import LLMError, build_provider
@@ -66,6 +67,7 @@ class JarvisBrain:
         )
         self.memory = Memory()
         self._history = self.memory.load_history()  # survives restarts
+        self._chat_lock = threading.Lock()  # one question at a time, in order
 
     @property
     def _system(self) -> str:
@@ -87,8 +89,17 @@ class JarvisBrain:
         except LLMError as exc:
             return f"unconfigured ({exc})"
 
+    @property
+    def last_model(self):
+        return getattr(self._provider, "last_model", None) if self._provider else None
+
     def chat(self, message: str, tracking: dict | None = None, frame_jpeg_b64: str | None = None):
-        """One conversational turn. Returns the assistant's reply text."""
+        """One conversational turn. Serialized: questions are answered one by
+        one, in order, even if several arrive at once."""
+        with self._chat_lock:
+            return self._chat_locked(message, tracking, frame_jpeg_b64)
+
+    def _chat_locked(self, message, tracking, frame_jpeg_b64):
         content = []
         if frame_jpeg_b64:
             content.append({"type": "image_jpeg_b64", "data": frame_jpeg_b64})

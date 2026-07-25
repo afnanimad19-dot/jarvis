@@ -32,6 +32,7 @@ class AnthropicProvider:
 
         self._anthropic = anthropic
         self._client = anthropic.Anthropic()
+        self.last_model = settings.model
 
     def chat(self, system: str, history: list) -> str:
         messages = [
@@ -90,11 +91,16 @@ class OpenAICompatibleProvider:
             raise LLMError(
                 "No API key set. Put OPENROUTER_API_KEY (or JARVIS_LLM_API_KEY) in jarvis_hud/.env"
             )
+        # max_retries=0: the SDK's own 429 retries (2x with backoff) would sit
+        # IN FRONT of our instant model-hopping — our chain is the retry.
         self._client = openai.OpenAI(
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key or "local",
+            max_retries=0,
+            timeout=45,
         )
         self._discovered = None  # (timestamp, all_free_ids, vision_free_ids)
+        self.last_model = None
 
     def _discover_free_models(self):
         """All :free model ids on the gateway — the automatic fallback pool."""
@@ -186,6 +192,7 @@ class OpenAICompatibleProvider:
             choice = response.choices[0] if response.choices else None
             text = (choice.message.content or "") if choice else ""
             if text.strip():
+                self.last_model = model
                 if model != settings.llm_model:
                     print(f"[LLM] primary busy — answered by fallback: {model}")
                 return text.strip()
