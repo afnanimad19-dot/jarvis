@@ -73,6 +73,12 @@ function connectVision() {
     }
     renderTracking(data.tracking || {});
     if (typeof data.gesture === "boolean" && data.gesture !== gestureOn) renderGesture(data.gesture);
+    if (data.reminders_due) {
+      for (const text of data.reminders_due) {
+        addMsg(botName, "⏰ Reminder: " + text);
+        speak("Reminder: " + text);
+      }
+    }
   };
   ws.onclose = () => {
     $("coreMsg").style.display = "";
@@ -123,6 +129,45 @@ async function send() {
 
   // Spoken commands, checked in order:
   const lower = message.toLowerCase();
+
+  // Pending outbound message confirmation comes first.
+  if (pendingSend) {
+    if (/^(confirm|yes|send it|go ahead|do it)\b/i.test(lower)) {
+      const p = pendingSend; pendingSend = null;
+      return executeSend(p);
+    }
+    if (/^(cancel|no|never mind|don'?t)\b/i.test(lower)) {
+      pendingSend = null;
+      addMsg(botName, "Cancelled. Nothing was sent.");
+      if ($("speak").checked) speak("Cancelled.");
+      return;
+    }
+    // Anything else falls through and also cancels the pending send.
+    pendingSend = null;
+  }
+
+  // Daily brief: "daily brief", "good morning", "brief me"
+  if (/\b(daily brief|morning brief|brief me|good morning)\b/.test(lower)) return briefCommand();
+
+  // Weather: "what's the weather", "weather in dubai"
+  if (/\bweather\b/.test(lower)) {
+    const cm = lower.match(/weather\s+(?:in|for)\s+(.+?)(?:\?|$)/);
+    return weatherCommand(cm ? cm[1].trim() : "");
+  }
+
+  // Reminders
+  const remindMatch = message.match(/^remind me\s+(?:to\s+|that\s+)?(.+)/i);
+  if (remindMatch) return reminderCommand("add", remindMatch[1]);
+  if (/\b(what are my reminders|list (my )?reminders|show (my )?reminders)\b/.test(lower)) {
+    return reminderCommand("list", "");
+  }
+  if (/^(clear|cancel) all reminders$/i.test(message.trim())) return reminderCommand("clear", "");
+  const cancelRem = message.match(/^cancel (?:the )?reminder\s+(?:about\s+|to\s+)?(.+)/i);
+  if (cancelRem) return reminderCommand("cancel", cancelRem[1]);
+
+  // Messaging: "telegram: buy milk" / "whatsapp to mom: on my way"
+  const msgMatch = message.match(/^(?:send\s+(?:a\s+)?)?(whatsapp|telegram)(?:\s+message)?(?:\s+to\s+([^:,]+?))?\s*[:,-]\s*(.+)/i);
+  if (msgMatch) return prepareSend(msgMatch[1].toLowerCase(), (msgMatch[2] || "").trim(), msgMatch[3].trim());
 
   // Virtual keyboard: "bring up the keyboard" / "hide the keyboard"
   if (/\bkeyboard\b/.test(lower)) {
@@ -313,6 +358,108 @@ async function windowCommand(action) {
     if ($("speak").checked) speak(reply);
   } catch (err) {
     addMsg("SYSTEM", "Window error: " + err.message);
+  }
+}
+
+/* ---------- weather / brief / reminders / messaging ---------- */
+let pendingSend = null;
+
+async function weatherCommand(city) {
+  status("CHECKING WEATHER…");
+  try {
+    const resp = await fetch("/api/weather" + (city ? "?city=" + encodeURIComponent(city) : ""));
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    addMsg(botName, data.spoken);
+    status("SYSTEMS NOMINAL");
+    if ($("speak").checked) speak(data.spoken);
+  } catch (err) {
+    addMsg("SYSTEM", "Weather error: " + err.message);
+    status("WEATHER FAILED");
+  }
+}
+
+async function briefCommand() {
+  status("COMPILING DAILY BRIEF…");
+  try {
+    const resp = await fetch("/api/brief", { method: "POST" });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    addMsg(botName, data.brief);
+    status("BRIEF DELIVERED");
+    if ($("speak").checked) speak(data.brief);
+  } catch (err) {
+    addMsg("SYSTEM", "Brief error: " + err.message);
+    status("BRIEF FAILED");
+  }
+}
+
+async function reminderCommand(action, text) {
+  try {
+    if (action === "list") {
+      const resp = await fetch("/api/reminders");
+      const data = await resp.json();
+      const items = data.reminders || [];
+      const reply = items.length
+        ? "Your reminders:\n" + items.map(r => "• " + r.text + " — " + r.at).join("\n")
+        : "No reminders set.";
+      addMsg(botName, reply);
+      if ($("speak").checked) speak(items.length ? "You have " + items.length + " reminders. They're on screen." : reply);
+      return;
+    }
+    const resp = await fetch("/api/reminders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, text }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    let reply;
+    if (action === "add") reply = "Reminder set for " + data.at + ": " + data.text + ".";
+    else if (action === "cancel") reply = data.removed ? "Cancelled " + data.removed + " reminder(s)." : "No matching reminder found.";
+    else reply = "All reminders cleared (" + data.cleared + ").";
+    addMsg(botName, reply);
+    if ($("speak").checked) speak(reply);
+  } catch (err) {
+    addMsg("SYSTEM", "Reminder error: " + err.message);
+    if ($("speak").checked) speak(err.message);
+  }
+}
+
+function prepareSend(channel, to, text) {
+  if (channel === "whatsapp" && !to) {
+    addMsg(botName, "WhatsApp to whom? Say: whatsapp to <name>: <message>.");
+    if ($("speak").checked) speak("WhatsApp to whom?");
+    return;
+  }
+  pendingSend = { channel, to, text };
+  const target = channel === "telegram" ? (to || "your Telegram") : to;
+  const ask = `Send via ${channel} to ${target}: "${text}" — say "confirm" to send or "cancel".`;
+  addMsg(botName, ask);
+  if ($("speak").checked) speak(`Sending to ${target}: ${text}. Say confirm, or cancel.`);
+  status("AWAITING SEND CONFIRMATION");
+}
+
+async function executeSend(p) {
+  status("SENDING…");
+  try {
+    const resp = await fetch("/api/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel: p.channel, to: p.to, text: p.text }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    const reply = p.channel === "whatsapp"
+      ? "Sent. Your browser opened WhatsApp Web to deliver it — give it a few seconds."
+      : "Sent to Telegram.";
+    addMsg(botName, reply);
+    status("MESSAGE SENT");
+    if ($("speak").checked) speak(reply);
+  } catch (err) {
+    addMsg("SYSTEM", "Send error: " + err.message);
+    status("SEND FAILED");
+    if ($("speak").checked) speak("Sending failed. " + err.message);
   }
 }
 

@@ -145,6 +145,28 @@ class JarvisBrain:
         ]
         return self._get_provider().chat(self._system, turn)
 
+    def compose_brief(self, data: dict) -> str:
+        """Turn raw brief data (time, weather, reminders, system) into a short
+        spoken daily brief. One-shot; doesn't touch history."""
+        turn = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Compose my daily brief from this data. Speak it in your "
+                            "persona, under 110 words, plain text (no markdown, no lists). "
+                            "Cover: greeting for the time of day, date, weather, today's "
+                            "reminders, and system health only if something is wrong.\n\n"
+                            + json.dumps(data)
+                        ),
+                    }
+                ],
+            }
+        ]
+        return self._get_provider().chat(self._system, turn)
+
     def look_at_image(self, jpeg_b64: str, question: str) -> str:
         """One-shot vision question about an arbitrary image (e.g. a screen
         capture). Does not touch chat history."""

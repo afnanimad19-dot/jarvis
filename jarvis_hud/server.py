@@ -15,12 +15,15 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import datetime
+
 from . import control, screen, voice
 from .brain import JarvisBrain
 from .config import settings
 from .gesture import GestureMouse
-from .integrations import crawler, postiz
+from .integrations import crawler, postiz, telegram, weather, whatsapp
 from .llm import LLMError
+from .reminders import ReminderError, Reminders
 from .vision.camera import VisionEngine
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -29,6 +32,7 @@ app = FastAPI(title="JARVIS HUD", version="0.2.0")
 engine = VisionEngine()
 brain = JarvisBrain()
 gesture = GestureMouse(engine)
+reminders = Reminders()
 
 
 @app.on_event("startup")
@@ -253,6 +257,95 @@ def media(req: MediaRequest):
     return {"ok": True, "action": req.action}
 
 
+@app.get("/api/weather")
+async def get_weather(city: str = ""):
+    try:
+        w = await weather.get_weather(city)
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    return {"weather": w, "spoken": weather.spoken(w)}
+
+
+@app.post("/api/brief")
+async def daily_brief():
+    data = {"now": datetime.datetime.now().strftime("%A, %B %d, %Y — %H:%M")}
+    try:
+        data["weather"] = await weather.get_weather("")
+    except Exception as exc:
+        data["weather"] = f"unavailable ({exc})"
+    data["reminders_today"] = [
+        {"text": r["text"], "at": datetime.datetime.fromtimestamp(r["due"]).strftime("%H:%M")}
+        for r in reminders.pending()
+        if datetime.datetime.fromtimestamp(r["due"]).date() == datetime.date.today()
+    ]
+    try:
+        data["system"] = control.system_status()
+    except RuntimeError:
+        pass
+    try:
+        brief = brain.compose_brief(data)
+    except LLMError as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    return {"brief": brief}
+
+
+class ReminderRequest(BaseModel):
+    action: str  # add | cancel | clear
+    text: str = ""
+
+
+@app.get("/api/reminders")
+def reminders_list():
+    return {
+        "reminders": [
+            {"text": r["text"],
+             "at": datetime.datetime.fromtimestamp(r["due"]).strftime("%a %H:%M")}
+            for r in reminders.pending()
+        ]
+    }
+
+
+@app.post("/api/reminders")
+def reminders_edit(req: ReminderRequest):
+    if req.action == "add":
+        try:
+            item = reminders.add(req.text)
+        except ReminderError as exc:
+            return JSONResponse(status_code=400, content={"error": str(exc)})
+        return {
+            "ok": True,
+            "text": item["text"],
+            "at": datetime.datetime.fromtimestamp(item["due"]).strftime("%H:%M"),
+        }
+    if req.action == "cancel":
+        return {"ok": True, "removed": reminders.cancel(req.text)}
+    if req.action == "clear":
+        return {"ok": True, "cleared": reminders.clear()}
+    return JSONResponse(status_code=400, content={"error": f"Unknown action {req.action!r}"})
+
+
+class MessageRequest(BaseModel):
+    channel: str  # telegram | whatsapp
+    to: str = ""
+    text: str
+
+
+@app.post("/api/message")
+async def send_message(req: MessageRequest):
+    """Owner-confirmed outbound message. The HUD asks for confirmation
+    BEFORE calling this endpoint — nothing is sent un-confirmed."""
+    try:
+        if req.channel == "telegram":
+            await telegram.send(req.text, chat_id=req.to)
+            return {"ok": True, "channel": "telegram"}
+        if req.channel == "whatsapp":
+            number = await asyncio.to_thread(whatsapp.send, req.to, req.text)
+            return {"ok": True, "channel": "whatsapp", "to": number}
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    return JSONResponse(status_code=400, content={"error": f"Unknown channel {req.channel!r}"})
+
+
 class MemoryRequest(BaseModel):
     action: str  # add | remove | clear
     text: str = ""
@@ -311,6 +404,9 @@ async def ws_vision(ws: WebSocket):
             payload = {"type": "vision", "tracking": tracking, "gesture": gesture.enabled}
             if jpeg:
                 payload["frame"] = base64.standard_b64encode(jpeg).decode("ascii")
+            due = reminders.pop_due()
+            if due:
+                payload["reminders_due"] = [r["text"] for r in due]
             await ws.send_json(payload)
             await asyncio.sleep(interval)
     except WebSocketDisconnect:
